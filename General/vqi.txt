@@ -1,0 +1,307 @@
+
+//@version=5
+indicator("Volatility Quality Index (VQI)",
+     shorttitle="VQI", 
+     overlay = true, 
+     timeframe="", 
+     timeframe_gaps = true)
+     
+import loxx/loxxmas/1
+
+greencolor = #2DD204
+redcolor = #D2042D 
+
+_declen()=>
+    mtckstr = str.tostring(syminfo.mintick)
+    da = str.split(mtckstr, ".")
+    temp = array.size(da) 
+    dlen = 0.
+    if syminfo.mintick < 1
+        dstr = array.get(da, 1) 
+        dlen := str.length(dstr)
+    dlen
+
+PriceSmoothing = input.int(5, "Source Smoothing Period", group= "Basic Settings")
+
+PriceSmoothingMethod = input.string("Simple Moving Average - SMA", "Source Smoothing Type", options = ["ADXvma - Average Directional Volatility Moving Average",  "Ahrens Moving Average"
+     , "Alexander Moving Average - ALXMA", "Double Exponential Moving Average - DEMA", "Double Smoothed Exponential Moving Average - DSEMA"
+     , "Exponential Moving Average - EMA", "Fast Exponential Moving Average - FEMA", "Fractal Adaptive Moving Average - FRAMA"
+     , "Hull Moving Average - HMA", "IE/2 - Early T3 by Tim Tilson", "Integral of Linear Regression Slope - ILRS"
+     , "Instantaneous Trendline", "Laguerre Filter", "Leader Exponential Moving Average", "Linear Regression Value - LSMA (Least Squares Moving Average)"
+     , "Linear Weighted Moving Average - LWMA", "McGinley Dynamic", "McNicholl EMA", "Non-Lag Moving Average", "Parabolic Weighted Moving Average"
+     , "Recursive Moving Trendline", "Simple Moving Average - SMA", "Sine Weighted Moving Average", "Smoothed Moving Average - SMMA"
+     , "Smoother", "Super Smoother", "Three-pole Ehlers Butterworth", "Three-pole Ehlers Smoother"
+     , "Triangular Moving Average - TMA", "Triple Exponential Moving Average - TEMA", "Two-pole Ehlers Butterworth", "Two-pole Ehlers smoother"
+     , "Volume Weighted EMA - VEMA", "Zero-Lag DEMA - Zero Lag Double Exponential Moving Average", "Zero-Lag Moving Average"
+     , "Zero Lag TEMA - Zero Lag Triple Exponential Moving Average"],
+     group = "Basic Settings")
+     
+Ma1Period = input.int(9, "Fast Signal Period", group= "Basic Settings")        
+Ma1Method = input.string("Simple Moving Average - SMA", "Fast Signal Smoothing Type", options = ["ADXvma - Average Directional Volatility Moving Average",  "Ahrens Moving Average"
+     , "Alexander Moving Average - ALXMA", "Double Exponential Moving Average - DEMA", "Double Smoothed Exponential Moving Average - DSEMA"
+     , "Exponential Moving Average - EMA", "Fast Exponential Moving Average - FEMA", "Fractal Adaptive Moving Average - FRAMA"
+     , "Hull Moving Average - HMA", "IE/2 - Early T3 by Tim Tilson", "Integral of Linear Regression Slope - ILRS"
+     , "Instantaneous Trendline", "Laguerre Filter", "Leader Exponential Moving Average", "Linear Regression Value - LSMA (Least Squares Moving Average)"
+     , "Linear Weighted Moving Average - LWMA", "McGinley Dynamic", "McNicholl EMA", "Non-Lag Moving Average", "Parabolic Weighted Moving Average"
+     , "Recursive Moving Trendline", "Simple Moving Average - SMA", "Sine Weighted Moving Average", "Smoothed Moving Average - SMMA"
+     , "Smoother", "Super Smoother", "Three-pole Ehlers Butterworth", "Three-pole Ehlers Smoother"
+     , "Triangular Moving Average - TMA", "Triple Exponential Moving Average - TEMA", "Two-pole Ehlers Butterworth", "Two-pole Ehlers smoother"
+     , "Volume Weighted EMA - VEMA", "Zero-Lag DEMA - Zero Lag Double Exponential Moving Average", "Zero-Lag Moving Average"
+     , "Zero Lag TEMA - Zero Lag Triple Exponential Moving Average"],
+     group = "Basic Settings")
+     
+Ma2Period = input.int(200, "Slow Signal Preiod", group= "Basic Settings")        
+
+
+Ma2Method = input.string("Simple Moving Average - SMA", "Slow Signal Smoothing Type", options = ["ADXvma - Average Directional Volatility Moving Average",  "Ahrens Moving Average"
+     , "Alexander Moving Average - ALXMA", "Double Exponential Moving Average - DEMA", "Double Smoothed Exponential Moving Average - DSEMA"
+     , "Exponential Moving Average - EMA", "Fast Exponential Moving Average - FEMA", "Fractal Adaptive Moving Average - FRAMA"
+     , "Hull Moving Average - HMA", "IE/2 - Early T3 by Tim Tilson", "Integral of Linear Regression Slope - ILRS"
+     , "Instantaneous Trendline", "Laguerre Filter", "Leader Exponential Moving Average", "Linear Regression Value - LSMA (Least Squares Moving Average)"
+     , "Linear Weighted Moving Average - LWMA", "McGinley Dynamic", "McNicholl EMA", "Non-Lag Moving Average", "Parabolic Weighted Moving Average"
+     , "Recursive Moving Trendline", "Simple Moving Average - SMA", "Sine Weighted Moving Average", "Smoothed Moving Average - SMMA"
+     , "Smoother", "Super Smoother", "Three-pole Ehlers Butterworth", "Three-pole Ehlers Smoother"
+     , "Triangular Moving Average - TMA", "Triple Exponential Moving Average - TEMA", "Two-pole Ehlers Butterworth", "Two-pole Ehlers smoother"
+     , "Volume Weighted EMA - VEMA", "Zero-Lag DEMA - Zero Lag Double Exponential Moving Average", "Zero-Lag Moving Average"
+     , "Zero Lag TEMA - Zero Lag Triple Exponential Moving Average"],
+     group = "Basic Settings")
+     
+FilterInPercent = input.float(0.01, "Filter in Percent", group= "Basic Settings") 
+rocfilt = input.int(10, "Rate of Change Period", group= "Basic Settings", tooltip = "Stridsman suggested to buy when VQI has increased in the previous 10 bars (use the SMAs ) and sell when it has decreased in the previous 10 bars. IMO, use this with your other indicators as a confirmation signal.") 
+colorbars = input.bool(true, "Color bars?", group = "UI Options")
+showSigs = input.bool(true, "Show signals?", group = "UI Options")
+
+frama_FC = input.int(defval=1, title="* Fractal Adjusted (FRAMA) Only - FC", group = "Moving Average Inputs")
+frama_SC = input.int(defval=200, title="* Fractal Adjusted (FRAMA) Only - SC", group = "Moving Average Inputs")
+instantaneous_alpha = input.float(defval=0.07, minval = 0, title="* Instantaneous Trendline (INSTANT) Only - Alpha", group = "Moving Average Inputs")
+_laguerre_alpha = input.float(title="* Laguerre Filter (LF) Only - Alpha", minval=0, maxval=1, step=0.1, defval=0.7, group = "Moving Average Inputs")
+lsma_offset = input.int(defval=0, title="* Least Squares Moving Average (LSMA) Only - Offset", group = "Moving Average Inputs")
+_pwma_pwr = input.int(2, "* Parabolic Weighted Moving Average (PWMA) Only - Power", minval=0, group = "Moving Average Inputs")
+kfl=input.float(0.666, title="* Kaufman's Adaptive MA (KAMA) Only - Fast End", group = "Moving Average Inputs")
+ksl=input.float(0.0645, title="* Kaufman's Adaptive MA (KAMA) Only - Slow End", group = "Moving Average Inputs")
+amafl = input.int(2, title="* Adaptive Moving Average (AMA) Only - Fast", group = "Moving Average Inputs")
+amasl = input.int(30, title="* Adaptive Moving Average (AMA) Only - Slow", group = "Moving Average Inputs")
+
+variant(type, src, len) =>
+    sig = 0.0
+    trig = 0.0
+    special = false
+    if type == "ADXvma - Average Directional Volatility Moving Average"
+        [t, s, b] = loxxmas.adxvma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Ahrens Moving Average"
+        [t, s, b] = loxxmas.ahrma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Alexander Moving Average - ALXMA"
+        [t, s, b] = loxxmas.alxma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Double Exponential Moving Average - DEMA"
+        [t, s, b] = loxxmas.dema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Double Smoothed Exponential Moving Average - DSEMA"
+        [t, s, b] = loxxmas.dsema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Exponential Moving Average - EMA"
+        [t, s, b] = loxxmas.ema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Fast Exponential Moving Average - FEMA"
+        [t, s, b] = loxxmas.fema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Fractal Adaptive Moving Average - FRAMA"
+        [t, s, b] = loxxmas.frama(src, len, frama_FC, frama_SC)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Hull Moving Average - HMA"
+        [t, s, b] = loxxmas.hma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "IE/2 - Early T3 by Tim Tilson"
+        [t, s, b] = loxxmas.ie2(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Integral of Linear Regression Slope - ILRS"
+        [t, s, b] = loxxmas.ilrs(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Instantaneous Trendline"
+        [t, s, b] = loxxmas.instant(src, instantaneous_alpha)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Laguerre Filter"
+        [t, s, b] = loxxmas.laguerre(src, _laguerre_alpha)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Leader Exponential Moving Average"
+        [t, s, b] = loxxmas.leader(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Linear Regression Value - LSMA (Least Squares Moving Average)"
+        [t, s, b] = loxxmas.lsma(src, len, lsma_offset)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Linear Weighted Moving Average - LWMA"
+        [t, s, b] = loxxmas.lwma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "McGinley Dynamic"
+        [t, s, b] = loxxmas.mcginley(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "McNicholl EMA"
+        [t, s, b] = loxxmas.mcNicholl(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Non-Lag Moving Average"
+        [t, s, b] = loxxmas.nonlagma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Parabolic Weighted Moving Average"
+        [t, s, b] = loxxmas.pwma(src, len, _pwma_pwr)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Recursive Moving Trendline"
+        [t, s, b] = loxxmas.rmta(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Simple Moving Average - SMA"
+        [t, s, b] = loxxmas.sma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Sine Weighted Moving Average"
+        [t, s, b] = loxxmas.swma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Smoothed Moving Average - SMMA"
+        [t, s, b] = loxxmas.smma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Smoother"
+        [t, s, b] = loxxmas.smoother(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Super Smoother"
+        [t, s, b] = loxxmas.super(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Three-pole Ehlers Butterworth"
+        [t, s, b] = loxxmas.threepolebuttfilt(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Three-pole Ehlers Smoother"
+        [t, s, b] = loxxmas.threepolesss(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Triangular Moving Average - TMA"
+        [t, s, b] = loxxmas.tma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Triple Exponential Moving Average - TEMA"
+        [t, s, b] = loxxmas.tema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Two-pole Ehlers Butterworth"
+        [t, s, b] = loxxmas.twopolebutter(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Two-pole Ehlers smoother"
+        [t, s, b] = loxxmas.twopoless(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Volume Weighted EMA - VEMA"
+        [t, s, b] = loxxmas.vwema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Zero-Lag DEMA - Zero Lag Double Exponential Moving Average"
+        [t, s, b] = loxxmas.zlagdema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Zero-Lag Moving Average"
+        [t, s, b] = loxxmas.zlagma(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Zero Lag TEMA - Zero Lag Triple Exponential Moving Average"
+        [t, s, b] = loxxmas.zlagtema(src, len)
+        sig := s
+        trig := t
+        special := b
+    trig
+
+cHigh = variant(PriceSmoothingMethod, high, PriceSmoothing)
+cLow = variant(PriceSmoothingMethod, low, PriceSmoothing)
+cOpen = variant(PriceSmoothingMethod, open, PriceSmoothing)
+cClose = variant(PriceSmoothingMethod, close, PriceSmoothing)
+pClose = variant(PriceSmoothingMethod, nz(close[1]), PriceSmoothing)
+
+val = 0., valc = 0.
+//truerng = math.max(cHigh, pClose) - math.min(cLow, pClose)
+truerng = math.max(cHigh/pClose, 1) - math.min(cLow/pClose, 1)
+rng = cHigh/pClose - cLow/pClose
+vqi = (rng != 0 and truerng != 0) ? (cClose/pClose/truerng + cClose/cOpen / rng) * 0.5 : val[1] 
+
+val := nz(val[1]) + math.abs(vqi) * (cClose/pClose-1 + cClose/cOpen-1) * 0.5*100
+if (FilterInPercent > 0)
+    if (math.abs(val - val[1]) < FilterInPercent) 
+        val := nz(val[1]) 
+        
+avg1 = variant(Ma1Method, val, Ma1Period)
+avg2 = variant(Ma2Method, val, Ma2Period)
+
+fill2in = (val > avg1) ? avg1 : (val < avg1) ? avg1 : val
+colorout = fill2in > val ? redcolor : greencolor
+        
+
+golongpre = ta.roc(val, rocfilt) > 0
+goshortpre = ta.roc(val, rocfilt) < 0 
+
+goLong = golongpre and not golongpre[1]
+goShort = goshortpre and not goshortpre[1]
+
+plotshape(showSigs and goLong, title = "Long", color = color.yellow, textcolor = color.yellow, text = "LONG", style = shape.triangleup, location = location.belowbar, size = size.auto)
+plotshape(showSigs and goShort, title = "Short", color = color.fuchsia, textcolor = color.fuchsia, text = "SHORT", style = shape.triangledown, location = location.abovebar, size = size.auto)
+
+alertcondition(goLong, title = "High Volatility", message = "Volatility Quality Index (VQI) w/ Pips Filtering [Loxx]: Uptrend\nSymbol: {{ticker}}\nPrice: {{close}}")
+alertcondition(goShort, title = "Low Volatility", message = "Volatility Quality Index (VQI) w/ Pips Filtering [Loxx]: Downtrend\nSymbol: {{ticker}}\nPrice: {{close}}")
+
+barcolor(colorbars ? colorout : na)
