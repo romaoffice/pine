@@ -1,0 +1,117 @@
+//@version=5
+strategy("Doji strategy")
+
+//doji
+C_Len = 14 // ta.ema depth for bodyAvg
+C_ShadowPercent = 5.0 // size of shadows
+C_ShadowEqualsPercent = 100.0
+C_DojiBodyPercent = 5.0
+C_Factor = 2.0 // shows the number of times the shadow dominates the candlestick body
+
+C_BodyHi = math.max(close, open)
+C_BodyLo = math.min(close, open)
+C_Body = C_BodyHi - C_BodyLo
+C_BodyAvg = ta.ema(C_Body, C_Len)
+C_SmallBody = C_Body < C_BodyAvg
+C_LongBody = C_Body > C_BodyAvg
+C_UpShadow = high - C_BodyHi
+C_DnShadow = C_BodyLo - low
+C_HasUpShadow = C_UpShadow > C_ShadowPercent / 100 * C_Body
+C_HasDnShadow = C_DnShadow > C_ShadowPercent / 100 * C_Body
+C_WhiteBody = open < close
+C_BlackBody = open > close
+C_Range = high-low
+C_IsInsideBar = C_BodyHi[1] > C_BodyHi and C_BodyLo[1] < C_BodyLo
+C_BodyMiddle = C_Body / 2 + C_BodyLo
+C_ShadowEquals = C_UpShadow == C_DnShadow or (math.abs(C_UpShadow - C_DnShadow) / C_DnShadow * 100) < C_ShadowEqualsPercent and (math.abs(C_DnShadow - C_UpShadow) / C_UpShadow * 100) < C_ShadowEqualsPercent
+C_IsDojiBody = C_Range > 0 and C_Body <= C_Range * C_DojiBodyPercent / 100
+doji_bar = C_IsDojiBody and C_ShadowEquals
+
+//doji_bar = math.abs(open - close) <= (high - low) * threshold
+barcolor(doji_bar? color.white : na)
+//bband
+bbLength = input.int(defval=20, title="BB period",group='BBand')
+bbMulti = input.float(defval=1.5, title="BB multiple",group='BBand')
+
+[middle, upper, lower] = ta.bb(close, bbLength, bbMulti)
+color_bb_basic = input.color(#FF6D00,title='Basic', group='BBand')
+color_bb_up = input.color(#2962FF,title='Upper/Lower', group='BBand')
+color_fill = input.color(color.rgb(33, 150, 243, 95),title='Fill', group='BBand')
+plot(middle, "Basis", color_bb_basic)
+p1 = plot(upper, "Upper", color=color_bb_up)
+p2 = plot(lower, "Lower", color=color_bb_up)
+fill(p1, p2, title = "Background", color=color_fill)
+
+bb_out_upper = close>upper
+bb_out_lower = close<lower
+
+//sto
+periodK = input.int(14, title="%K Length", minval=1,group='STO')
+smoothK = input.int(1, title="%K Smoothing", minval=1,group='STO')
+periodD = input.int(3, title="%D Smoothing", minval=1,group='STO')
+k = ta.sma(ta.stoch(close, high, low, periodK), smoothK)
+d = ta.sma(k, periodD)
+
+oversold_level = input.int(defval=20, title="Oversold level",group='STO')
+overbought_level = input.int(defval=80, title="Overbought level",group='STO')
+
+oversold = k<oversold_level
+overbought  = k>overbought_level
+
+//indecision
+color_indecision_long = input.color(color.new(#2ee412, 11),title='Long bar', group='Indecision')
+color_indecision_short = input.color(color.new(#bd12e4, 19),title='Short bar', group='Indecision')
+
+indecision_long = doji_bar and (bb_out_lower) and oversold
+indecision_short = doji_bar and (bb_out_upper) and overbought
+barcolor(indecision_long? color_indecision_long : na)
+barcolor(indecision_short? color_indecision_short : na)
+indecision = indecision_long or indecision_short
+//trading
+rr = input.float(2.0,title='Profit/Stoploss rate')
+var stoploss_level = float(0)
+
+if(indecision_long)
+	strategy.entry("Long", strategy.long,stop=high)
+	stoploss_level:=low
+if(indecision_short)
+	strategy.entry("Short", strategy.short,stop=low)
+	stoploss_level:=high
+if(strategy.position_size>0)
+	strategy.exit("Exit","Long",limit=strategy.position_avg_price+rr*(strategy.position_avg_price-stoploss_level),stop=stoploss_level)
+if(strategy.position_size<0)
+	strategy.exit("Exit","Short",limit=strategy.position_avg_price-rr*(stoploss_level-strategy.position_avg_price),stop=stoploss_level)
+
+// wait break
+color_indecision_break = input.color(color.new(#2ee412, 11),title='Breakline', group='Trading')
+color_indecision_stoploss = input.color(color.new(#e42712, 11),title='Stoploss', group='Trading')
+direction = indecision_long[1] ? 1:(indecision_short[1]?-1:0)
+var break_level = float(0)
+
+var broke = bool(true)
+if (direction==0)
+	direction:=nz(direction[1])
+else
+	broke:= false
+	if(direction==1)
+		break_level:= high[1]
+		stoploss_level:=low[1]
+	else
+		break_level:= low[1]
+		stoploss_level:=high[1]
+
+if(break_level>0 and broke==false)
+	if(direction==1)
+		if(high>break_level)
+			broke:=true
+	else
+		if(low<break_level)
+			broke:=true
+if(strategy.position_size==0 and nz(strategy.position_size[1])!=0)
+	stoploss_level:=na
+if(indecision_long or indecision_short) 
+	broke:=false
+plot((indecision[3] or indecision[2] or indecision[1])?stoploss_level:na,color=color_indecision_stoploss,style=plot.style_linebr,title='level',linewidth=2)
+plot((indecision[3] or indecision[2] or indecision[1])?break_level:na,color=color_indecision_break,style=plot.style_linebr,title='level',linewidth=2)
+
+

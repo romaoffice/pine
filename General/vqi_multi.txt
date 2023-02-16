@@ -1,15 +1,18 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 
 //@version=5
-indicator("Volatility Quality Index (VQI)",
-     shorttitle="VQI", 
-     overlay = true, 
-     timeframe="", 
-     timeframe_gaps = true)
+indicator("Volatility Quality Index (VQI) w/ Pips Filtering",
+     shorttitle="VQIPF", 
+     overlay = false)
      
 import loxx/loxxmas/1
 
 greencolor = #2DD204
 redcolor = #D2042D 
+redcolor_tf1=#7c3a71
+greencolor_tf1=#3a7c42
+redcolor_tf2=#7c713a
+greencolor_tf2=#3a427c
 
 _declen()=>
     mtckstr = str.tostring(syminfo.mintick)
@@ -66,7 +69,7 @@ Ma2Method = input.string("Simple Moving Average - SMA", "Slow Signal Smoothing T
      , "Zero Lag TEMA - Zero Lag Triple Exponential Moving Average"],
      group = "Basic Settings")
      
-FilterInPercent = input.float(0, "Filter in Percent", group= "Basic Settings") 
+FilterInPips = input.float(1.9, "Filter in Pips", group= "Basic Settings") 
 rocfilt = input.int(10, "Rate of Change Period", group= "Basic Settings", tooltip = "Stridsman suggested to buy when VQI has increased in the previous 10 bars (use the SMAs ) and sell when it has decreased in the previous 10 bars. IMO, use this with your other indicators as a confirmation signal.") 
 colorbars = input.bool(true, "Color bars?", group = "UI Options")
 showSigs = input.bool(true, "Show signals?", group = "UI Options")
@@ -82,7 +85,6 @@ ksl=input.float(0.0645, title="* Kaufman's Adaptive MA (KAMA) Only - Slow End", 
 amafl = input.int(2, title="* Adaptive Moving Average (AMA) Only - Fast", group = "Moving Average Inputs")
 amasl = input.int(30, title="* Adaptive Moving Average (AMA) Only - Slow", group = "Moving Average Inputs")
 
-MultipleAtr = input.float(0.5, title="Multiplie for VQI ribbon")
 variant(type, src, len) =>
     sig = 0.0
     trig = 0.0
@@ -269,6 +271,8 @@ variant(type, src, len) =>
         special := b
     trig
 
+pipMultiplier = math.pow(10, _declen() % 2)
+
 cHigh = variant(PriceSmoothingMethod, high, PriceSmoothing)
 cLow = variant(PriceSmoothingMethod, low, PriceSmoothing)
 cOpen = variant(PriceSmoothingMethod, open, PriceSmoothing)
@@ -278,39 +282,65 @@ pClose = variant(PriceSmoothingMethod, nz(close[1]), PriceSmoothing)
 val = 0., valc = 0.
 truerng = math.max(cHigh, pClose) - math.min(cLow, pClose)
 rng = cHigh - cLow
-vqi = (rng != 0 and truerng != 0) ? ((cClose-pClose)/truerng + (cClose-cOpen) / rng) * 0.5 : val[1] 
-val := nz(val[1]) + math.abs(vqi) * (cClose/pClose-1 + cClose/cOpen-1) * 0.5
-if (FilterInPercent > 0)
-    if (math.abs(val - val[1]) < FilterInPercent) 
+vqi = (rng != 0 and truerng != 0) ? ((cClose - pClose) / truerng + (cClose - cOpen) / rng) * 0.5 : val[1] 
+
+val := nz(val[1]) + math.abs(vqi) * (cClose - pClose + cClose - cOpen) * 0.5 
+if (FilterInPips > 0)
+    if (math.abs(val - val[1]) < FilterInPips * pipMultiplier * syminfo.mintick) 
         val := nz(val[1]) 
-        
+
 avg1 = variant(Ma1Method, val, Ma1Period)
 avg2 = variant(Ma2Method, val, Ma2Period)
 
 fill2in = (val > avg1) ? avg1 : (val < avg1) ? avg1 : val
 colorout = fill2in > val ? redcolor : greencolor
 
-Ma2Close = ta.ema(close,Ma1Period)
-AvgAtr = ta.atr(Ma1Period)
-plot(vqi)
-plot(val)
-plot(avg2)
-plot(fill2in)
 
-plot(Ma2Close)
-fill1 = plot(Ma2Close*(val/avg2), "VQI", color = colorout)
-fill2 = plot(Ma2Close*(fill2in/avg2), "Fast Signal", color = colorout)
-outer = plot(Ma2Close, "Slow Signal", color = color.white, linewidth = 2)
+fill1 = plot(val, "VQI", color = colorout)
+fill2 = plot(fill2in, "Fast Signal", color = colorout)
+outer = plot(avg2, "Slow Signal", color = color.white, linewidth = 2)
+
 fill(fill1, fill2, colorout)
-//avg2
+
+tf1 = input.timeframe('D', "Resolution 1",group='Multi Timeframe')
+
+colorout_tf1 = request.security(syminfo.tickerid, tf1, colorout)
+if(colorout_tf1==redcolor)
+    colorout_tf1:=redcolor_tf1
+else    
+    colorout_tf1:=greencolor_tf1
+val_tf1 = request.security(syminfo.tickerid, tf1, val)
+fill2in_tf1 = request.security(syminfo.tickerid, tf1, fill2in)
+outer_tf1 = request.security(syminfo.tickerid, tf1, avg2)
+
+fill1_tf1 = plot(avg2*val_tf1/outer_tf1, "VQI_TF1", color = colorout_tf1)
+fill2_tf1 = plot(avg2*fill2in_tf1/outer_tf1, "Fast Signal_TF1", color = colorout_tf1)
+fill(fill1_tf1, fill2_tf1, colorout_tf1)
+
+tf2 = input.timeframe('240', "Resolution 2",group='Multi Timeframe')
+
+colorout_tf2 = request.security(syminfo.tickerid, tf2, colorout)
+val_tf2 = request.security(syminfo.tickerid, tf2, val)
+fill2in_tf2 = request.security(syminfo.tickerid, tf2, fill2in)
+outer_tf2 = request.security(syminfo.tickerid, tf2, avg2)
+if(colorout_tf2==redcolor)
+    colorout_tf2:=redcolor_tf2
+else    
+    colorout_tf2:=greencolor_tf2
+
+fill1_tf2 = plot(avg2*val_tf2/outer_tf2, "VQI_TF2", color = colorout_tf2)
+fill2_tf2 = plot(avg2*fill2in_tf2/outer_tf2, "Fast Signal_TF2", color = colorout_tf2)
+
+fill(fill1_tf2, fill2_tf2, colorout_tf2)
+
 golongpre = ta.roc(val, rocfilt) > 0
 goshortpre = ta.roc(val, rocfilt) < 0 
 
 goLong = golongpre and not golongpre[1]
 goShort = goshortpre and not goshortpre[1]
 
-plotshape(showSigs and goLong, title = "Long", color = color.yellow, textcolor = color.yellow, text = "LONG", style = shape.triangleup, location = location.belowbar, size = size.auto)
-plotshape(showSigs and goShort, title = "Short", color = color.fuchsia, textcolor = color.fuchsia, text = "SHORT", style = shape.triangledown, location = location.abovebar, size = size.auto)
+plotshape(showSigs and goLong, title = "Long", color = color.yellow, textcolor = color.yellow, text = "L", style = shape.triangleup, location = location.bottom, size = size.auto)
+plotshape(showSigs and goShort, title = "Short", color = color.fuchsia, textcolor = color.fuchsia, text = "S", style = shape.triangledown, location = location.top, size = size.auto)
 
 alertcondition(goLong, title = "High Volatility", message = "Volatility Quality Index (VQI) w/ Pips Filtering [Loxx]: Uptrend\nSymbol: {{ticker}}\nPrice: {{close}}")
 alertcondition(goShort, title = "Low Volatility", message = "Volatility Quality Index (VQI) w/ Pips Filtering [Loxx]: Downtrend\nSymbol: {{ticker}}\nPrice: {{close}}")

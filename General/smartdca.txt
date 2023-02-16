@@ -1,0 +1,63 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © tymchenkoser
+
+//@version=5
+strategy("My strategy", overlay=true, initial_capital=400,pyramiding=100,commission_value=0.1)
+
+dir = input.string("long","direction", options=["long","short","both"])
+backtest_timeframe_start = input.time(defval=timestamp("26 Jan 2023 01:00 +0000"), title="Backtest Start Time")
+within_timeframe = time >= backtest_timeframe_start
+
+initQty = input.int(defval=30,title="init qty")
+
+bbLength = input.int(defval=20, title="BB period",group='BBand')
+bbMulti = input.float(defval=1.5, title="BB multiple",group='BBand')
+
+
+minGridstepPercent = input.float(defval=0.8, title="Min Grid Step%",group='Grid')
+maxstep = input.int(defval=5, title="Max Grid Count",group='Grid')
+takeprofitPercent = input.float(defval=0.8, title="Take profit%",group='Grid')
+stoplossPercent = input.float(defval=10, title="Stop loss%",group='Grid')
+
+[middle, upper, lower] = ta.bb(close, bbLength, bbMulti)
+plot(middle, "Basis", color=#FF6D00)
+p1 = plot(upper, "Upper", color=#2962FF)
+p2 = plot(lower, "Lower", color=#2962FF)
+fill(p1, p2, title = "Background", color=color.rgb(33, 150, 243, 95))
+
+_declen()=>
+    mtckstr = str.tostring(syminfo.mintick)
+    da = str.split(mtckstr, ".")
+    temp = array.size(da) 
+    dlen = 0.
+    if syminfo.mintick < 1
+        dstr = array.get(da, 1) 
+        dlen := str.length(dstr)
+    dlen
+pipMultiplier = math.pow(10, _declen() % 2)
+
+var level = int(0)
+
+var lastEntry =float(0)
+longCondition = within_timeframe and close<lower
+shortCondition = within_timeframe and close>upper
+
+stepCondlong = strategy.position_size==0 or lastEntry/close-1>minGridstepPercent/100
+stepCondshort = strategy.position_size==0 or close/lastEntry-1>minGridstepPercent/100
+//plot(lastEntry==0?close:lastEntry*(1-minGridstepPercent/100),title="Next DCA")
+
+if ((dir=="long" or dir=="both") and longCondition and stepCondlong and strategy.position_size>=0)
+    lastEntry:=close
+    if(level<maxstep)
+        level:=level+1
+        strategy.entry("Long", strategy.long,qty=initQty/close*level)
+if ((dir=="short" or dir=="both") and shortCondition and stepCondshort and strategy.position_size<=0)
+    lastEntry:=close
+    if(level<maxstep)
+        level:=level+1
+        strategy.entry("Short", strategy.short,qty=initQty/close*level)        
+strategy.exit("Exit","Long",limit=strategy.position_avg_price*(1+takeprofitPercent/100),stop=strategy.position_avg_price*(1-stoplossPercent/100))
+strategy.exit("Exit","Short",limit=strategy.position_avg_price*(1-takeprofitPercent/100),stop=strategy.position_avg_price*(1+stoplossPercent/100))
+if(strategy.position_size==0 and strategy.position_size[1]!=0)
+    level:=0
+    lastEntry:=close
