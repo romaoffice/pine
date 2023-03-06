@@ -1,0 +1,412 @@
+//@version=5
+indicator('P11 SESSION RANGE V1', shorttitle = "P11 SESSION RANGE V1", max_bars_back=2000, max_boxes_count=200,max_lines_count=200, overlay=true)
+
+
+timeframe_1=input.int(3,title='Time frame 1(days)',group='Range',minval=2,maxval=500)
+timeframe_2=input.int(2,title='Time frame 1(weeks)',group='Range',minval=1,maxval=100)
+timeframe_3=input.int(1,title='Time frame 1(months)',group='Range',minval=1,maxval=25)
+timeframe_4=input.int(12,title='Time frame 1(months)',group='Range',minval=1,maxval=25)
+
+filter_bull_bear = input.string("both",title='Filter for Bull/Bear',options=['both','only bull','only bear'])
+
+var int[] range_start  = array.new_int(200)
+var float[] range_value  = array.new_float(200)
+var float[] range_open  = array.new_float(200)
+var float[] range_close  = array.new_float(200)
+
+
+var vis = "Time Frame Visibilities"
+max_tf_show_temp = input.string(title='Show on timeframes EQUAL or LESS than...', options=['All Timeframes', '15 mins', '1 hour', '4 hour'], defval='4 hour', group = vis, inline = "l_vis")
+max_tf_show = max_tf_show_temp == '15 mins' ? 15 : max_tf_show_temp == '1 hour' ? 60 : max_tf_show_temp == '4 hour' ? 240 : 9999
+
+min_tf_show_temp = input.string(title='...but Hide on timeframes LESS than...', options=['All Timeframes', '15 mins', '1 hour', '4 hour', 'Daily'], defval='All Timeframes', group = vis, inline = "l_vis")
+min_tf_show = min_tf_show_temp == '1 hour' ? 60 : min_tf_show_temp == '15 mins' ? 15 : min_tf_show_temp == '5 mins' ? 5 : min_tf_show_temp == '3 mins' ? 3 : 0
+
+var session = "Session Details"
+tz = input.session("0000-0700", "Session", group = session)
+tz_dif = input.int(1, 'Time zone difference to GMT', minval = -12, maxval = 12, step = 1, group = session)
+
+
+
+
+
+
+
+
+
+var g_show_b_boarder = "Box Boarder Visibility"
+show_box_boarder_curr = input(false, title='Show Current Box Boarder', group = g_show_b_boarder)
+show_box_boarder_prev = input(true, title='Show Previous Box Boarder', group = g_show_b_boarder)
+show_box_boarder_hist = input(true, title='Show Historic Box Boarder', group = g_show_b_boarder)
+
+
+var g_show_line_mid = "Mid Line Visiblity"
+show_line_mid_curr = input(true, title='Show Current Mid Line', group = g_show_line_mid)
+show_line_mid_prev = input(true, title='Show Previous Mid Line', group = g_show_line_mid)
+show_line_mid_hist = input(false, title='Show Historic Mid Line', group = g_show_line_mid)
+
+
+var g_show_line_ex = "Extended Line Visiblity"
+show_line_ex_curr = input(false, title='Show Current Extended Line', group = g_show_line_ex)
+show_line_ex_prev = input(true, title='Show Previous Extended Line', group = g_show_line_ex)
+show_line_ex_hist = input(false, title='Show Historic Extended Line', group = g_show_line_ex)
+
+var g_show_box_fill = "Box Fill Visiblity"
+show_box_fill_curr = input(false, title='Show Current Box Fill', group = g_show_box_fill)
+show_box_fill_prev = input(false, title='Show Previous Box Fill', group = g_show_box_fill)
+show_box_fill_hist = input(false, title='Show Historic Box Fill', group = g_show_box_fill)
+
+
+var g_show_txt = "Range Pips Visiblity"
+show_txt_curr = input(false, title='Show Current Range Pips', group = g_show_txt)
+show_txt_prev = input(false, title='Show Previous Range Pips', group = g_show_txt)
+show_txt_hist = input(false, title='Show Historic Range Pips', group = g_show_txt)
+
+
+
+
+
+
+
+
+
+
+
+var sess_colour = "Session Colours"
+sess_col = input(title='Session colour', defval=color.new(#FFFF00, 0), group = sess_colour)
+
+transp_curr = input.int(0, title = "Current Session Transparency", group = sess_colour)
+transp_prev = input.int(0, title = "Previous Session Transparency", group = sess_colour)
+transp_hist = input.int(0, title = "Historic Session Transparency", group = sess_colour)
+transp_fill = input.int(50, title = "Session Fill Transparency", group = sess_colour)
+transp_txt = input.int(0, title = "Text Transparency", group = sess_colour)
+
+
+
+
+
+sess_col_curr = color.new(sess_col, transp_curr)
+sess_col_prev = color.new(sess_col, transp_prev)
+sess_col_hist = color.new(sess_col, transp_hist)
+
+
+col_box_boarder_curr = sess_col_curr
+col_box_boarder_hist = sess_col_hist
+col_box_boarder_prev = sess_col_prev
+
+col_mid_curr = sess_col_curr
+col_mid_prev = sess_col_prev
+col_mid_hist = sess_col_hist
+
+col_ex_curr = sess_col_curr
+col_ex_prev = sess_col_prev
+col_ex_hist = sess_col_hist
+
+
+
+col_box_fill_curr =color.new(sess_col_curr,     int(100-(100-transp_curr) * (1-transp_fill/100)))
+col_box_fill_prev = color.new(sess_col_prev,    int(100-(100-transp_prev) * (1-transp_fill/100)))
+col_box_fill_hist = color.new(sess_col_hist,    int(100-(100-transp_hist) * (1-transp_fill/100)))
+
+
+
+col_txt_curr =color.new(sess_col_curr,     int(100-(100-transp_curr) * (1-transp_txt/100)))
+col_txt_prev = color.new(sess_col_prev,    int(100-(100-transp_prev) * (1-transp_txt/100)))
+col_txt_hist = color.new(sess_col_hist,    int(100-(100-transp_hist) * (1-transp_txt/100)))
+
+
+
+
+
+
+
+
+var g_line_curr = "Box Boarder Line Thickness"
+width_curr_box = input(1, title='Current Session Box Boarder Width', group = g_line_curr)
+width_prev_box = input(1, title='Previous Session Box Boarder Width', group = g_line_curr)
+width_hist_box = input(1, title='Historic Session Box Boarder Width', group = g_line_curr)
+
+var g_line_prev = "Mid Line Thickness"
+width_curr_mid = input(1, title='Current Session Mid Line Width', group = g_line_prev)
+width_prev_mid = input(1, title='Previous Session Mid Line Width', group = g_line_prev)
+width_hist_mid = input(1, title='Historic Session Mid Line Width', group = g_line_prev)
+
+
+
+var g_line_hist = "Extended Line Thickness"
+
+width_curr_ext = input(1, title='Current Session Extended Line Width', group = g_line_hist)
+width_prev_ext = input(1, title='Previous Session Extended Line Width', group = g_line_hist)
+width_hist_ext = input(1, title='Historic Session Extended Line Width', group = g_line_hist)
+
+
+
+
+
+
+
+var g_style_curr = "Box Boarder Line Style"
+style_box_curr_temp = input.string(title='Current Box Boarder Style', options=['solid', 'dashed', 'dotted'], defval='solid', group = g_style_curr)
+style_box_curr = style_box_curr_temp == 'solid' ? line.style_solid : style_box_curr_temp == 'dashed' ? line.style_dashed : style_box_curr_temp == 'dotted' ? line.style_dotted : na
+
+style_box_prev_temp = input.string(title='Previous Box Boarder Style', options=['solid', 'dashed', 'dotted'], defval='solid', group = g_style_curr)
+style_box_prev = style_box_prev_temp == 'solid' ? line.style_solid : style_box_prev_temp == 'dashed' ? line.style_dashed : style_box_prev_temp == 'dotted' ? line.style_dotted : na
+
+style_box_hist_temp = input.string(title='Historic Box Boarder Style', options=['solid', 'dashed', 'dotted'], defval='solid', group = g_style_curr)
+style_box_hist = style_box_hist_temp == 'solid' ? line.style_solid : style_box_hist_temp == 'dashed' ? line.style_dashed : style_box_hist_temp == 'dotted' ? line.style_dotted : na
+
+
+
+var g_style_prev = "Mid Line Style"
+style_mid_line_curr_temp = input.string(title='Current Mid Line  Style', options=['solid', 'dashed', 'dotted'], defval='dashed', group = g_style_prev)
+style_mid_line_curr = style_mid_line_curr_temp == 'solid' ? line.style_solid : style_mid_line_curr_temp == 'dashed' ? line.style_dashed : style_mid_line_curr_temp == 'dotted' ? line.style_dotted : na
+
+style_mid_line_prev_temp = input.string(title='Previous Mid Line  Style', options=['solid', 'dashed', 'dotted'], defval='dashed', group = g_style_prev)
+style_mid_line_prev = style_mid_line_prev_temp == 'solid' ? line.style_solid : style_mid_line_prev_temp == 'dashed' ? line.style_dashed : style_mid_line_prev_temp == 'dotted' ? line.style_dotted : na
+
+style_mid_line_hist_temp = input.string(title='Historic Mid Line  Style', options=['solid', 'dashed', 'dotted'], defval='dashed', group = g_style_prev)
+style_mid_line_hist = style_mid_line_hist_temp == 'solid' ? line.style_solid : style_mid_line_hist_temp == 'dashed' ? line.style_dashed : style_mid_line_hist_temp == 'dotted' ? line.style_dotted : na
+
+
+
+
+var g_style_hist = "Extended Line Style"
+style_ex_line_curr_temp = input.string(title='Current Extended Line  Style', options=['solid', 'dashed', 'dotted'], defval='dashed', group = g_style_hist)
+style_ex_line_curr = style_ex_line_curr_temp == 'solid' ? line.style_solid : style_ex_line_curr_temp == 'dashed' ? line.style_dashed : style_ex_line_curr_temp == 'dotted' ? line.style_dotted : na
+
+style_ex_line_prev_temp = input.string(title='Previous Extended Line  Style', options=['solid', 'dashed', 'dotted'], defval='dashed', group = g_style_hist)
+style_ex_line_prev = style_ex_line_prev_temp == 'solid' ? line.style_solid : style_ex_line_prev_temp == 'dashed' ? line.style_dashed : style_ex_line_prev_temp == 'dotted' ? line.style_dotted : na
+
+style_ex_line_hist_temp = input.string(title='Historic Extended Line  Style', options=['solid', 'dashed', 'dotted'], defval='dashed', group = g_style_hist)
+style_ex_line_hist = style_ex_line_hist_temp == 'solid' ? line.style_solid : style_ex_line_hist_temp == 'dashed' ? line.style_dashed : style_ex_line_hist_temp == 'dotted' ? line.style_dotted : na
+
+
+var g_txt = "Text"
+t_size_temp = input.string('huge', title='Text Size', options=['tiny', 'small', 'normal', 'large', 'huge', 'automatic'], group = g_txt)
+txt_size = t_size_temp == 'tiny' ? size.tiny : t_size_temp == 'small' ? size.small : t_size_temp == 'normal' ? size.normal : t_size_temp == 'large' ? size.large : t_size_temp == 'huge' ? size.huge : size.auto
+
+
+t_halign_temp = input.string("left", "Horizontal Text Allign", options = ["left", "center", "right"], group = g_txt)
+t_halign = t_halign_temp == "center"?text.align_center: t_halign_temp == "left"?text.align_left : t_halign_temp ==   "right"?text.align_right:na
+
+
+t_valign_temp = input.string("top", "Vertical Text Allign", options = ["top", "center", "bottom"], group = g_txt)
+t_valign = t_valign_temp == "top"?text.align_top: t_valign_temp ==  "center"?text.align_center:   t_valign_temp== "bottom"?text.align_bottom:na
+
+
+var g_range = "Misc"
+use_bodies = input(title='Use bodies instead of wickes to define range', defval=false, group = g_range)
+show_extreme_prev = input.bool(true, "Show Key Levels from previous session", group = g_range)
+shift_temp = input.int(90, "Extend Key Levels from Previous Session for xxx minutes after session", group = g_range)
+
+
+//=============================================
+
+
+
+
+timezone_dif = str.tostring(tz_dif)
+timezone_dif:= tz_dif>=0?       "+"+timezone_dif:      timezone_dif
+sess = time(timeframe.period,tz, "GMT"+timezone_dif)
+
+
+
+
+
+int since_start = ta.barssince(sess and not sess[1])
+int since_finish = ta.barssince(sess[1] and not sess)
+float duration = since_start[since_finish]
+hr_24 = since_start[since_start+1]
+m_1 = (hr_24/24)/60
+
+
+
+shift = int(m_1*shift_temp+1)
+
+
+
+
+var float sessionHighPrice = na
+var float sessionLowPrice = na
+
+
+if not use_bodies
+    if sess and not sess[1]
+        sessionHighPrice := high
+        sessionLowPrice := low
+    else if sess
+        sessionHighPrice := math.max(sessionHighPrice, high)
+        sessionLowPrice := math.min(sessionLowPrice, low)
+
+else
+    if sess and not sess[1]
+        sessionHighPrice := open>close?open:close
+        sessionLowPrice :=  open<close?open:close
+    else if sess
+        sessionHighPrice := math.max(sessionHighPrice, open>close?open:close)
+        sessionLowPrice := math.min(sessionLowPrice, open<close?open:close)
+
+sess_range = sessionHighPrice - sessionLowPrice
+sessionMiddle = sessionLowPrice + sess_range * 0.5
+
+sess_pips = int(str.endswith(syminfo.ticker,"JPY")?sess_range*100:sess_range*10000) 
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////curr_sess/////////////////////curr_sess/////////////////////curr_sess/////////////////////curr_sess/////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+if timeframe.isintraday and timeframe.multiplier > min_tf_show and timeframe.multiplier <= max_tf_show
+
+    box_curr_sess = box.new(bar_index[since_start], sessionHighPrice, bar_index + int((duration - since_start)), sessionLowPrice, border_color = show_box_boarder_curr?col_box_boarder_curr:na, border_width = width_curr_box, bgcolor = show_box_fill_curr?col_box_fill_curr:color.new(col_box_fill_curr, 100), border_style = style_box_curr, text_size = txt_size, text_color = show_txt_curr?col_txt_curr:na, text_halign = t_halign, text_valign = t_valign, text = str.tostring(sess_pips))
+    line_mid_curr_sess = line.new(x1= bar_index[since_start], y1= sessionMiddle,  x2 = bar_index + int((duration - since_start)), y2 = sessionMiddle, color = show_line_mid_curr?col_mid_curr:na, width = width_curr_mid, style = style_mid_line_curr)
+    line_high_ex_curr_sess = line.new(x1= bar_index + int(duration - since_start),  x2 = bar_index + int((duration - since_start)+(hr_24 - duration)), y1 = sessionHighPrice, y2 = sessionHighPrice, color = show_line_ex_curr?col_ex_curr:na, width = 4, style = style_ex_line_curr)
+    line_low_ex_curr_sess = line.new(x1= bar_index + int(duration - since_start),  x2 = bar_index + int((duration - since_start)+(hr_24 - duration)), y1 = sessionLowPrice, y2 = sessionLowPrice, color = show_line_ex_curr?col_ex_curr:na, width = width_curr_ext, style = style_ex_line_curr)
+    line_mid_ex_curr_sess = line.new(x1= bar_index + int(duration - since_start),  x2 = bar_index + int((duration - since_start)+(hr_24 - duration)), y1 = sessionMiddle, y2 = sessionMiddle, color = show_line_ex_curr?col_ex_curr:na, width = width_curr_ext, style = style_ex_line_curr)
+
+
+
+
+
+
+
+    box.delete(box_curr_sess[1])
+    line.delete(line_mid_curr_sess[1])
+    line.delete(line_high_ex_curr_sess[1])
+    line.delete(line_low_ex_curr_sess[1])
+    line.delete(line_mid_ex_curr_sess[1])
+ 
+    box.delete(box_curr_sess[sess?1:0])
+    line.delete(line_mid_curr_sess[sess?1:0])
+    line.delete(line_high_ex_curr_sess[sess?1:0])   
+    line.delete(line_low_ex_curr_sess[sess?1:0])     
+    line.delete(line_mid_ex_curr_sess[sess?1:0])
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////prev_sess/////////////////////prev_sess/////////////////////prev_sess/////////////////////prev_sess/////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    if not sess and sess[1]
+        box_prev_sess =             box.new(        bar_index[0+since_start],                               sessionHighPrice[0],                                                    bar_index[0] + int(duration - since_start),     sessionLowPrice[0],             border_color =  show_box_boarder_prev?col_box_boarder_prev:na,       border_width = width_prev_box, bgcolor = show_box_fill_prev?col_box_fill_prev:color.new(col_box_fill_prev, 100), border_style = style_box_prev, text_size = txt_size, text_color = show_txt_prev?col_txt_prev:na, text_halign = t_halign, text_valign = t_valign, text = str.tostring(sess_pips))
+        line_mid_prev_sess =        line.new(x1=    bar_index[0+since_start], x2 =                          bar_index[0] + int(duration - since_start),   y1 =                      sessionMiddle[0],                               y2 = sessionMiddle[0],          color =         show_line_mid_prev?col_mid_prev:na,       width = width_prev_mid, style = style_mid_line_curr)
+        line_high_ex_prev_sess =    line.new(x1=    bar_index[0] + int((duration - since_start)),  x2 =     bar_index[0] + int((duration - since_start)+(hr_24-duration)), y1 =     sessionHighPrice[0],                            y2 = sessionHighPrice[0],       color =         show_line_ex_prev?col_ex_prev:na,        width = width_prev_ext, style = style_ex_line_prev)
+        line_low_ex_prev_sess =     line.new(x1=    bar_index[0] + int((duration - since_start)),  x2 =     bar_index[0] + int((duration - since_start)+(hr_24-duration)), y1 =     sessionLowPrice[0],                             y2 = sessionLowPrice[0],        color =         show_line_ex_prev?col_ex_prev:na,        width = width_prev_ext, style = style_ex_line_prev)
+        line_mid_ex_prev_sess =     line.new(x1=    bar_index[0] + int((duration - since_start)),  x2 =     bar_index[0] + int((duration - since_start)+(hr_24-duration)), y1 =     sessionMiddle[0],                               y2 = sessionMiddle[0],          color =         show_line_ex_prev?col_ex_prev:na,        width = width_prev_ext, style = style_ex_line_prev)
+        if(array.get(range_start,array.size(range_start)-1)!=bar_index[0+since_start])
+            if(array.size(range_start)==200)
+                array.shift(range_start)
+                array.shift(range_value)
+                array.shift(range_open)
+                array.shift(range_close)
+
+            array.push(range_start,bar_index[0+since_start])
+            array.push(range_value,sessionHighPrice[0]-sessionLowPrice[0])
+            array.push(range_open,open[0+since_start])
+            array.push(range_close,close[int(since_start-duration)])
+        else
+            array.set(range_start,array.size(range_start)-1,bar_index[0+since_start])
+            array.set(range_value,array.size(range_value)-1,sessionHighPrice[0]-sessionLowPrice[0])
+            array.set(range_open,array.size(range_open)-1,open[0+since_start])
+            array.set(range_close,array.size(range_close)-1,close[bar_index[0] + int(duration - since_start)])
+        box.delete(box_prev_sess[1])
+        line.delete(line_mid_prev_sess[1])
+        line.delete(line_high_ex_prev_sess[1])
+        line.delete(line_low_ex_prev_sess[1])
+        line.delete(line_mid_ex_prev_sess[1])
+
+
+    if not sess and sess[shift+2]
+        line_high_shift_curr_sess = line.new(x1 = bar_index[0+since_start],    x2 = bar_index +      int((duration - since_start) + shift), y1 = sessionHighPrice, y2 = sessionHighPrice, color = show_extreme_prev?col_mid_curr:na, width = width_curr_ext, style = style_mid_line_curr)
+        line_low_shift_curr_sess =  line.new(x1 = bar_index[0+since_start],    x2 = bar_index +      int((duration - since_start) + shift),    y1 = sessionLowPrice, y2 = sessionLowPrice, color = show_extreme_prev?col_mid_curr:na, width = width_curr_ext, style = style_mid_line_curr)
+        line_mid_shift_curr_sess =  line.new(x1 = bar_index[0+since_start],    x2 = bar_index +      int((duration - since_start) + shift),    y1 = sessionMiddle, y2 = sessionMiddle, color = show_extreme_prev?col_mid_curr:na, width = width_curr_ext, style = style_mid_line_curr)
+        line.delete(line_high_shift_curr_sess[1])
+        line.delete(line_low_shift_curr_sess[1])
+        line.delete(line_mid_shift_curr_sess[1])
+
+        if since_finish == shift+1 
+            line.delete(line_high_shift_curr_sess)
+            line.delete(line_low_shift_curr_sess)
+            line.delete(line_mid_shift_curr_sess)
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////hist_sess/////////////////////hist_sess/////////////////////hist_sess/////////////////////hist_sess/////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    if not sess and sess[1]
+        box_hist_sess =             box.new(        bar_index[hr_24+since_start],                               sessionHighPrice[hr_24],                                                    bar_index[hr_24] + int(duration - since_start),     sessionLowPrice[hr_24],             border_color =  show_box_boarder_hist?col_box_boarder_hist:na,      border_width =  width_prev_box, bgcolor = show_box_fill_hist?col_box_fill_hist:color.new(col_box_fill_hist, 100), border_style = style_box_hist, text_size = txt_size, text_color = show_txt_hist?col_txt_hist:na, text_halign = t_halign, text_valign = t_valign, text = str.tostring(sess_pips[hr_24]))
+        line_mid_hist_sess =        line.new(x1=    bar_index[hr_24+since_start], x2 =                          bar_index[hr_24] + int(duration - since_start),   y1 =                      sessionMiddle[hr_24],                               y2 = sessionMiddle[hr_24],          color =         show_line_mid_hist?col_mid_hist:na,                 width =         width_prev_mid, style = style_mid_line_prev)
+        line_high_ex_hist_sess =    line.new(x1=    bar_index[hr_24] + int((duration - since_start)),  x2 =     bar_index[hr_24] + int((duration - since_start)+(hr_24-duration)), y1 =     sessionHighPrice[hr_24],                            y2 = sessionHighPrice[hr_24],       color =         show_line_ex_hist?sess_col_hist:na,                 width =         width_prev_ext, style = style_ex_line_hist)
+        line_low_ex_hist_sess =     line.new(x1=    bar_index[hr_24] + int((duration - since_start)),  x2 =     bar_index[hr_24] + int((duration - since_start)+(hr_24-duration)), y1 =     sessionLowPrice[hr_24],                             y2 = sessionLowPrice[hr_24],        color =         show_line_ex_hist?sess_col_hist:na,                 width =         width_prev_ext, style = style_ex_line_hist)
+        line_mid_ex_hist_sess =     line.new(x1=    bar_index[hr_24] + int((duration - since_start)),  x2 =     bar_index[hr_24] + int((duration - since_start)+(hr_24-duration)), y1 =     sessionMiddle[hr_24],                               y2 = sessionMiddle[hr_24],          color =         show_line_ex_hist?sess_col_hist:na,                 width =         width_prev_ext, style = style_ex_line_hist)
+
+var table atrDisplay = table.new(position.top_right, 6, 3,bgcolor = color.white, frame_width = 2, frame_color = color.black,border_color=color.black,border_width = 1)
+atr_average(period,ispips) =>
+    var float sum=0.0
+    var int itemcount=0
+    var bool mustcontain=false
+    var float avg=0.0
+    itemcount:=itemcount
+    for i=1 to period
+        if(array.size(range_close)>=i)
+            mustcontain:=false
+            if(filter_bull_bear=="both")
+                mustcontain:= true
+            else
+                if(filter_bull_bear=="only bull" and array.get(range_close,array.size(range_close)-i)>array.get(range_open,array.size(range_close)-i))
+                    mustcontain:= true
+                if(filter_bull_bear=="only bear" and array.get(range_close,array.size(range_close)-i)<array.get(range_open,array.size(range_close)-i))
+                    mustcontain:= true
+            if(mustcontain)
+                itemcount:= itemcount+1
+                if(ispips)
+                    sum:=sum+array.get(range_value,array.size(range_value)-i)/syminfo.mintick
+                else
+                    sum:=sum+array.get(range_value,array.size(range_value)-i)/array.get(range_open,array.size(range_open)-i)*100
+    if(itemcount>0)
+        avg:=sum/itemcount
+    avg
+
+if barstate.islast
+    table.cell(atrDisplay, 0, 0, "Timeframe", text_color = color.black)
+    table.cell(atrDisplay, 1, 0, "Today", text_color = color.black)
+    table.cell(atrDisplay, 2, 0, str.tostring(timeframe_1)+'days', text_color = color.black)
+    table.cell(atrDisplay, 3, 0, str.tostring(timeframe_2)+'weeks', text_color = color.black)
+    table.cell(atrDisplay, 4, 0, str.tostring(timeframe_3)+'months', text_color = color.black)
+    table.cell(atrDisplay, 5, 0, str.tostring(timeframe_4)+'months', text_color = color.black)
+
+    pips_cur = int((sessionHighPrice-sessionLowPrice)/syminfo.mintick/10)
+    pips_1 = atr_average(timeframe_1,true)/10
+    pips_2 = atr_average(timeframe_2*5,true)/10
+    pips_3 = atr_average(timeframe_3*20,true)/10
+    pips_4 = atr_average(timeframe_4*20,true)/10
+
+    table.cell(atrDisplay, 0, 1, "Pips", text_color = color.black)
+    table.cell(atrDisplay, 1, 1, str.tostring(pips_cur, '#.#'), text_color = color.black)
+    table.cell(atrDisplay, 2, 1, str.tostring(pips_1, '#.#'), text_color = color.black)
+    table.cell(atrDisplay, 3, 1, str.tostring(pips_2, '#.#'), text_color = color.black)
+    table.cell(atrDisplay, 4, 1, str.tostring(pips_3, '#.#'), text_color = color.black)
+    table.cell(atrDisplay, 5, 1, str.tostring(pips_4, '#.#'), text_color = color.black)
+
+    percent_cur = (sessionHighPrice-sessionLowPrice)/open[since_start]*100
+    percent_1 = atr_average(timeframe_1,false)
+    percent_2 = atr_average(timeframe_2*5,false)
+    percent_3 = atr_average(timeframe_3*20,false)
+    percent_4 = atr_average(timeframe_4*20,false)
+
+    table.cell(atrDisplay, 0, 2, "Percent", text_color = color.black)
+    table.cell(atrDisplay, 1, 2, str.tostring(percent_cur,format.percent), text_color = color.black)
+    table.cell(atrDisplay, 2, 2, str.tostring(percent_1,format.percent), text_color = color.black)
+    table.cell(atrDisplay, 3, 2, str.tostring(percent_2,format.percent), text_color = color.black)
+    table.cell(atrDisplay, 4, 2, str.tostring(percent_3,format.percent), text_color = color.black)
+    table.cell(atrDisplay, 5, 2, str.tostring(percent_4,format.percent), text_color = color.black)

@@ -1,0 +1,23 @@
+#1 Daily trend – RSI Div
+TF – 15m
+Indicators –
+	21 and 55 EMA for 15m and D
+	BBWP
+	RSI	
+SL1 – Close above/below entry range wick high/low
+SL2 – Wick above/below prior high/low
+Entry 
+	21EMA>55EMA for long
+	21EMA<55EMA for short
+	BBWP < 25
+	
+	Entry with limit order on 55EMA
+Exit
+
+RSI regular divergence opposing direction of trade
+Exit long on first lower high/ Exit short on first higher low
+	
+Report variations
+	Long only with Daily 21EMA>55EMA and vice-versa for short, for exit a. and b.
+	Long only with Daily 21EMA<55EMA if there is confirmed RSI hidden divergence and vice-versa for short, for exit a. and b.
+5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, D

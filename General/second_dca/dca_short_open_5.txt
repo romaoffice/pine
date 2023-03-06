@@ -1,0 +1,457 @@
+//@version=4
+study("DCA(Open) Short", overlay=true, max_lines_count  = 150)
+
+//===================== moving average =======================
+use_tf = input('D', 'Timeframe for alerts', options=['D', 'W', 'M', 'Y'])
+tf_index = use_tf == 'D' ? 0 : use_tf =='W' ? 1 : use_tf == 'M' ? 2 : 3
+timeout = input(30, 'Timeout in seconds')
+only_bar_close = input(false, 'Only trigger on close')
+
+open_thld = input(10.0, 'Threshold in percent')
+alerts = input('Both', 'Directions to trigger', options=['Both', 'Only Long', 'Only Short'])
+
+//--------------------------------------------------------------------
+//                             Constants
+//--------------------------------------------------------------------
+
+var HEAD_PADDING        = -2
+var HEAD_TRANSP         = 60
+var LABEL_SIZE          = size.small
+var LABEL_STYLE         = label.style_none
+var LINE_STYLE          = line.style_solid
+var LINE_WIDTH          = 1
+var OFFSET_PADDING      = 4
+var TAIL_STYLE          = line.style_dotted
+
+//--------------------------------------------------------------------
+//                               Inputs
+//--------------------------------------------------------------------
+
+t_tails                 = "Extends last opens on historical bars."
+t_heads                 = "Extends previous opens in the future."
+t_discoverPrices        = "Discovers the opening prices from the intraday chart.\n\nYou may use this setting when there are discrepancies between the data from intraday and high time frames."
+t_extendedHours         = "Discovers the opening prices from the extended trading hours if available."
+
+var i_isDailyEnabled    = input     (true,          "Daily",                                inline="Daily",     group="Opens")
+var i_dailyColor        = input     (color.green,   "",                                     inline="Daily",     group="Opens")
+var i_dailyLookback     = input (1,             "", input.integer,                             inline="Daily",     group="Opens")
+var i_isWeeklyEnabled   = input     (true,          "Weekly",                               inline="Weekly",    group="Opens")
+var i_weeklyColor       = input     (color.orange,  "",                                     inline="Weekly",    group="Opens")
+var i_weeklyLookback    = input (1,             "", input.integer,                                  inline="Weekly",    group="Opens")
+var i_isMonthlyEnabled  = input     (true,          "Monthly",                              inline="Monthly",   group="Opens")
+var i_monthlyColor      = input     (color.red,     "",                                     inline="Monthly",   group="Opens")
+var i_monthlyLookback   = input (1,             "", input.integer,                                  inline="Monthly",   group="Opens")
+var i_isYearlyEnabled   = input     (true,          "Yearly",                               inline="Yearly",    group="Opens")
+var i_yearlyColor       = input     (color.blue,    "",                                     inline="Yearly",    group="Opens")
+var i_yearlyLookback    = input (1,             "", input.integer,                                  inline="Yearly",    group="Opens")
+var i_rightOffset       = input (20,            "Offset", input.integer,                                                group="Style")
+var i_areTailsEnabled   = input     (false,         "Show Tails",                                       group="Style")
+var i_areHeadsEnabled   = input     (false,         "Show Projections",                                group="Style")
+var i_discoverPrices    = input     (false,         "Discover Prices",                       group="Settings")
+var i_extendedHours     = input     (false,         "Extended Hours",                         group="Settings")
+
+//--------------------------------------------------------------------
+//                        Variables declarations
+//--------------------------------------------------------------------
+
+var a_lastOpens             = array.new_float(4)
+var canShowDaily            = i_isDailyEnabled and timeframe.isintraday
+var canShowWeekly           = i_isWeeklyEnabled and (timeframe.isintraday or timeframe.isdaily)
+var canShowMonthly          = i_isMonthlyEnabled and not timeframe.ismonthly
+var canShowYearly           = i_isYearlyEnabled and not (timeframe.ismonthly and timeframe.multiplier >= 12)
+var hasExtendedHours        = i_extendedHours and syminfo.session == session.extended
+var discoverPrices          = i_discoverPrices or hasExtendedHours
+
+[dailyTime, dailyOpen]      = security(syminfo.tickerid, 'D',   [time, open], lookahead=barmerge.lookahead_on)
+[weeklyTime, weeklyOpen]    = security(syminfo.tickerid, 'W',   [time, open], lookahead=barmerge.lookahead_on)
+[monthlyTime, monthlyOpen]  = security(syminfo.tickerid, 'M',   [time, open], lookahead=barmerge.lookahead_on)
+[yearlyTime, yearlyOpen]    = security(syminfo.tickerid, '12M', [time, open], lookahead=barmerge.lookahead_on)
+
+hasDailyTimeChanged         = hasExtendedHours ? time_tradingday != time_tradingday[1] : dailyTime != dailyTime[1]
+hasWeekklyTimeChanged       = hasExtendedHours ? weekofyear != weekofyear[1] : weeklyTime != weeklyTime[1]
+hasMonthlyTimeChanged       = hasExtendedHours ? month != month[1] : monthlyTime != monthlyTime[1]
+hasYearlyTimeChanged        = hasExtendedHours ? year != year[1] : yearlyTime != yearlyTime[1]
+
+//--------------------------------------------------------------------
+//                              Functions 
+//--------------------------------------------------------------------
+
+// If different opens share the same opening prices, their labels will overlap
+// Instead, we pad the higher time frame ones for achieving a "separator sheet"
+f_getPadding(_index) =>
+    _padding = 0
+    // Weekly, monthly, or yearly overlaps the daily open
+    if _index > 0 and canShowDaily and array.get(a_lastOpens, 0) == array.get(a_lastOpens, _index)
+        _padding += 1
+    // Monthly or yearly overlaps the weekly open
+    if _index > 1 and canShowWeekly and array.get(a_lastOpens, 1) == array.get(a_lastOpens, _index)
+        _padding += 1
+    // Yearly overlaps the monthly open
+    if _index > 2 and canShowMonthly and array.get(a_lastOpens, 2) == array.get(a_lastOpens, _index)
+        _padding += 1
+    _padding
+
+f_getRightBarIndex(_padding) => bar_index + i_rightOffset + _padding * OFFSET_PADDING
+
+// On the weekly time frame, the monthly/yearly open is drawn from the first candle of the month/year
+// The first weekly candle is not necessarily containing the first day of the month
+// In such case, we visually anchor the open of the previous weekly candle
+f_isContainedOnPrevWeekly(_time) => timeframe.isweekly and dayofmonth(time) > dayofmonth(_time)
+
+// Create and update an open level. An open is composed of a label, a "body" line, and optional "tail" and "head" lines extensions
+f_draw(_newOpen, _y, _lookback, _padding, _color,  _text,  _prevTime) =>
+    var line _body  = na 
+    var _label      = label.new(na, na, _text, style=LABEL_STYLE, textcolor=_color, size=LABEL_SIZE)
+    var _tail       = line.new(na, na, na, na, color=_color, style=TAIL_STYLE, width=LINE_WIDTH, extend=extend.left)
+    var _bodies     = array.new_line()
+    var _heads      = array.new_line()
+    _start          = _prevTime ? bar_index - 1 : bar_index
+    _end            = f_getRightBarIndex(_padding)
+
+    if _newOpen
+        // Label
+        label.set_xy(_label, _end, _y)
+        label.set_tooltip(_label, tostring(_y, format.mintick))
+
+        // Body
+        line.set_x2(_body, bar_index)
+        _body := line.new(_start, _y, _end, _y, color=_color, style=LINE_STYLE, width=LINE_WIDTH)
+        array.push(_bodies, _body)
+
+        // Head
+        if i_areHeadsEnabled
+            array.push(_heads, line.new(bar_index, _y, bar_index, _y, color=color.new(_color, HEAD_TRANSP), style=LINE_STYLE, width=LINE_WIDTH))
+
+        // Tail
+        if i_areTailsEnabled
+            line.set_xy1(_tail, _start - 1, _y)
+            line.set_xy2(_tail, _start, _y)
+
+        if array.size(_bodies) > _lookback
+            line.delete(array.shift(_bodies))
+        if array.size(_heads) > _lookback
+            line.delete(array.shift(_heads))
+
+    if barstate.islast
+        line.set_x2(_body, _end)
+        label.set_x(_label, _end)
+
+        if i_areHeadsEnabled and array.size(_heads) > 1
+            // Not updating the last open's projection
+            for i = 0 to array.size(_heads) - 2
+                // Avoid projecting on last opens bodies
+                if not array.includes(a_lastOpens, line.get_y1(array.get(_heads, i)))
+                    line.set_x2(array.get(_heads, i), f_getRightBarIndex(HEAD_PADDING))
+
+//--------------------------------------------------------------------
+//                                Logic
+//--------------------------------------------------------------------
+
+if canShowDaily and hasDailyTimeChanged 
+    array.set(a_lastOpens, 0, discoverPrices ? open : dailyOpen)
+
+if canShowWeekly and hasWeekklyTimeChanged
+    array.set(a_lastOpens, 1, discoverPrices ? open : weeklyOpen)
+
+if canShowMonthly and hasMonthlyTimeChanged
+    array.set(a_lastOpens, 2, discoverPrices ? open : monthlyOpen)
+
+if canShowYearly and hasYearlyTimeChanged
+    array.set(a_lastOpens, 3, discoverPrices ? open : yearlyOpen)
+
+//--------------------------------------------------------------------
+//                          Plotting & styling
+//--------------------------------------------------------------------
+
+if canShowYearly
+    f_draw(hasYearlyTimeChanged, array.get(a_lastOpens, 3), i_yearlyLookback, f_getPadding(3), i_yearlyColor, "Y   ", f_isContainedOnPrevWeekly(yearlyTime))
+
+if canShowMonthly
+    f_draw(hasMonthlyTimeChanged, array.get(a_lastOpens, 2), i_monthlyLookback, f_getPadding(2), i_monthlyColor, "M   ", f_isContainedOnPrevWeekly(monthlyTime))
+
+if canShowWeekly
+    f_draw(hasWeekklyTimeChanged, array.get(a_lastOpens, 1), i_weeklyLookback, f_getPadding(1), i_weeklyColor, "W   ",false)
+
+if canShowDaily
+    f_draw(hasDailyTimeChanged, array.get(a_lastOpens, 0), i_dailyLookback, f_getPadding(0), i_dailyColor, "D   ",false)
+
+// Plot invisible opens for displaying last values in `status line`, `scale`, `data window` as well for providing defaults alert conditions
+
+plot(array.get(a_lastOpens, 0), "D",    color.new(i_dailyColor, 100),   editable=false)
+plot(array.get(a_lastOpens, 1), "W",    color.new(i_weeklyColor, 100),  editable=false)
+plot(array.get(a_lastOpens, 2), "M",    color.new(i_monthlyColor, 100), editable=false)
+plot(array.get(a_lastOpens, 3), "Y",    color.new(i_yearlyColor, 100),  editable=false)
+
+crr_open = array.get(a_lastOpens, tf_index)
+
+
+src = input(defval = close, title = "Source")
+len1 = input(defval = 20, title = "Short Term Length", minval = 5)
+len2 = input(defval = 50, title = "Long Term Length", minval = 5)
+
+// get short/long-term regression slope
+slope_price = linreg(src, len1, 0) - linreg(src, len1, 1)
+slope_price_lt = linreg(src, len2, 0) - linreg(src, len2, 1)
+
+// get the size of top/bottom/body of the candle
+tw = high - max(open, close) 
+bw = min(open, close) - low 
+body = abs(close - open) 
+
+//Calculate Buy/Sell Volume
+_rate(cond) =>
+    ret = 0.5 * (tw + bw + (cond ? 2 * body : 0)) / (tw + bw + body) 
+    ret := na(ret) ? 0.5 : ret
+    ret
+
+// Calculate Regression Slope for Buy/Sell Volumes
+_get_trend(len)=>   
+    deltaup =  volume * _rate(open <= close) 
+    deltadown = volume * _rate(open > close)
+    
+    slope_volume_up = linreg(deltaup, len, 0) - linreg(deltaup, len, 1)
+    slope_volume_down = linreg(deltadown, len, 0) - linreg(deltadown, len, 1)
+    [slope_volume_up, slope_volume_down]
+
+// get buy/sell volume regression slopes for short term period
+[slope_volume_up, slope_volume_down] = _get_trend(len1)
+
+
+varip int last_alert = 0
+varip float last_alert_time = 0
+
+plot(crr_open, color=color.purple)
+if(crr_open!=crr_open[1])
+    last_alert:=0
+
+exceeding_threshold_long = close > crr_open * (1+open_thld/100)
+exceeding_threshold_short = close < crr_open * (1-open_thld/100)
+
+within_threshold = not (exceeding_threshold_long or exceeding_threshold_short)
+
+switched_red_to_green = slope_price[1] < 0 and slope_price > 0
+switched_green_to_red = slope_price[1] > 0 and slope_price < 0
+
+hist_green = slope_price > 0
+hist_red = slope_price < 0
+
+long_condition_open = false
+short_condition_open = false
+
+long_condition_exit = false
+short_condition_exit = false
+
+
+if (barstate.isconfirmed or not only_bar_close)
+    if exceeding_threshold_long and last_alert != 1
+        if alerts != 'Only Long'
+            short_condition_exit:=true
+        if alerts != 'Only Short'
+            long_condition_open:= true
+            last_alert := 1
+            last_alert_time := timenow
+        
+    if exceeding_threshold_short and last_alert != -1
+        if alerts != 'Only Short'
+            long_condition_exit:=true
+        if alerts != 'Only Long'
+            short_condition_open:=true
+            last_alert := -1
+            last_alert_time := timenow
+    
+
+//======================= minimum take profit ===========
+minimum_tp = input(0.2, "Minimum Take Profit(%)", type=input.float,group='Trade')
+
+
+//======================= dca ===========================
+
+alert_secs = input(30, "Alert timeout in seconds", type=input.integer,group='DCA')
+thld = input(3, "Position threshold in percent", type=input.float,group='DCA')
+tp = input(2, "Take profit in percent", type=input.float,group='DCA')
+only_on_bar_close = input(false, "Only send alerts on candle close", type=input.bool,group='DCA')
+
+prd = input(defval = 10, title="Period", minval = 5, maxval = 30,group='DCA') // period: if there possible profit higher than user-defined minimum profit in that period, it checks 2 to X bars
+minchange = input(defval = 2.0, title = "Min Profit", minval = 0.1, step = 0.1,group='DCA') / 100  // exptected minimum profit
+simrate = input(defval = 80., title = "Similarity Rate", minval = 20., maxval = 99.,group='DCA') // minimum similarity, 80 or higher number would be better 
+maxarraysize = input(defval = 5000, title = "Max Memory Size", minval = 100, maxval = 10000,group='DCA') // how many images it will keep
+changebarcol = input(defval = true, title = "Change Bar Color?",group='DCA')
+
+// defining some variables to keep track of positions
+varip int last_short_entry_time = 0
+varip int crr_entry_count = 0
+varip float crr_tp = 0
+varip float last_entry_price = 0
+varip float avg_entry_price = 0
+varip float initial_entry_price = 0
+varip bool   mustenter = false
+
+// mamory to keep images
+var shorts = array.new_string(0)
+
+// define dymamic image size
+h_ = highest(8)
+l_ = lowest(8)
+cw = (h_ - l_) / 8
+
+// is in channel
+included(t1, t2, t3, t4)=> (t3 >= t1 and t3 <= t2) or 
+                           (t4 >= t1 and t4 <= t2) or 
+                           (t3 <= t1 and t4 >= t2)
+
+// get part of the image, in this fuction we create filter for the square. 
+// normally we should use 4x4 or similar filters but the problem is we have a lot of different images. so we try to make it simplier
+// Each square gets the value:
+// 0: nothing in it
+// 1: only wick in it
+// 2: only red body in it
+// 3. only green body in it
+// 4: red body and wick in it
+// 5: green body and wick in it 
+get_filter(t1, t2, j)=>
+    btop = max(close[j], open[j])
+    bbot = min(close[j], open[j])
+    wick_included = included(t1, t2, btop, high[j]) or included(t1, t2, low[j], bbot)
+    body_included = included(t1, t2, bbot, btop)
+    col = close[j] >= open[j] ? 1 : 0
+    chr = wick_included and body_included ? 4 + col : wick_included ? 1 : body_included ? 2 + col : 0
+    tostring(chr)
+    
+// calculate the image, in this function we create filter for the image
+create_filter()=>
+    string img = ""
+    b = l_
+    t = l_ + cw
+    for i = 0 to 7  // 8 * 8 matrix, we may get better results with more squares such 20x20 especially for the images in that we have long candles, but it's hard to get result in expected time
+        for j = 0 to 7
+            img := img + get_filter(b, t, j)
+        b := b + cw
+        t := t + cw
+             
+    img
+
+// draw the image
+draw_image(image, base)=>
+    var imglinearray = array.new_line(64)
+    for x = 0 to 63
+        line.delete(array.get(imglinearray, x))
+        
+    img = str.split(image, "")
+    ind = 0
+    for y = 0 to 7
+        for x = 0 to 7 
+            i = array.get(img, ind)
+            array.set(imglinearray, ind, 
+                      line.new(x1 = bar_index - x * 3 , 
+                               y1 = y + base, 
+                               x2 = bar_index - x * 3 - 2, 
+                               y2 = y + base, 
+                               color = i == "2" ? color.red : i == "4" ? color.olive : i == "3" ? color.lime : i == "5" ? color.green : i == "1" ? color.gray : color.black, width = 25)) 
+            ind := ind + 1
+
+// get current image and draw it, here actually we create filter according to squares of the image
+image = create_filter()
+draw_image(image, 0)
+
+// search the image in memory, in this function the filter created for current image is searhed in filters the momory
+// the main issue is that we have a lot of images in the memory, but not a few images (like, a car image or apple image). 
+// so we created filter for all of them and we need to search all of them
+search_image(image)=>
+    img_array = str.split(image, "")
+    sim = 0.
+    fimg = ""
+    for i = 0 to array.size(shorts) - 1
+        limg_array = str.split(array.get(shorts, i), "")
+        sim := 100.
+        for j = 0 to 63
+            // actually we need to use -1.5625 if the filter is not macthes, but the main issue we have a lot of images/filters in the memory. not only a few images
+            sim := sim - (array.get(img_array, j) != array.get(limg_array, j) ? 1.5625 : 0) 
+            if sim < simrate
+                break
+        if sim >= simrate
+            fimg := array.get(shorts, i)
+            break
+    [sim, fimg]
+    
+// check if price incresed higher than user-defined profit in user-defined period
+// if yes then this is a new image that we need to save, so we add this filter to the memory
+var minprofit = 100.
+var maxprofit = 0.
+if maxarraysize > array.size(shorts)
+    for x = 2 to prd // there must be a candle for entry, so started from 2
+        profit = -(close - close[x]) / close[x]
+        if profit >= minchange
+            // we check if the price went above the highest level of the image
+            not_sl = true
+            for y = 0 to x - 1
+                if high[y] > h_
+                    not_sl := false        
+            if not_sl and array.size(str.split(image, "")) == 64  and not array.includes(shorts, image[x]) 
+                minprofit := min(minprofit, profit)
+                maxprofit := max(maxprofit, profit)
+                array.unshift(shorts, image[x])
+                break
+
+// search for current image/filter in the database if it matches
+simm = 0.
+fm = ""
+if barstate.islast and array.size(shorts)> 0
+    [sim, fimg] = search_image(image)
+    simm := sim
+    fm := fimg
+
+var label flabel = na
+var label currentimagelab = label.new(bar_index - 30, 3, text = "Current Image", style = label.style_label_right, color = color.lime, textcolor = color.black)
+label.set_x(currentimagelab, bar_index - 30)
+
+// found an image with enough profit
+if fm != ""
+    label.delete(flabel)
+    flabel := label.new(bar_index - 30, 18, text = "Matched " + tostring(simm, '#.##') + " %", style = label.style_label_right, color = color.purple)
+    draw_image(fm, 15)
+
+var label infolab = label.new(bar_index - 75, 0, text = "", color = color.lime, textcolor = color.black, textalign = text.align_left, size = size.large)
+label.set_text(infolab, "Learned : " + tostring(array.size(shorts)) + 
+                       "\nMemory Full : " + tostring(100 * array.size(shorts)/maxarraysize, '#.##') + 
+                       " %\nMin Profit Found : " + tostring(minprofit*100, '#.#') + 
+                       " %\nMax Profit Found : " + tostring(maxprofit*100, '#.#') + "%")
+                       
+label.set_x(infolab, bar_index - 75)
+
+barcolor(color = changebarcol and fm != "" ? color.purple : na)
+
+// alert messages
+message_entry_short = '{"name": "DCA-Short","secret": "3w0462dsqt9obmm20d","side": "sell","symbol": "'+tostring(syminfo.ticker)+'","open": {"price": "'+tostring(close)+'","priceOfs": "0.10"},"positionSide": "short"}'
+
+message_exit_short = '{"name": "DCA-Short","secret": "3w0462dsqt9obmm20d","side": "buy","symbol": "'+tostring(syminfo.ticker)+'","close": {"enabled": true,"price":"'+tostring(close)+'"},"positionSide": "short"}'
+
+
+short_entry_condition_dca = fm != ""
+
+// position is open
+if crr_entry_count > 0
+    // checking TP
+    if (barstate.isconfirmed and close<avg_entry_price*(1-minimum_tp/100) and crr_entry_count==1 and close>open) or (close < crr_tp and crr_entry_count>1)
+        crr_entry_count := 0
+        alert(message_exit_short, freq=alert.freq_all)
+    else 
+        if (barstate.isconfirmed or not only_on_bar_close)
+            if short_entry_condition_dca and close > last_entry_price * (1+thld/100) and timenow > last_short_entry_time + 1000*alert_secs and exceeding_threshold_long
+                last_entry_price := close
+                temp_prev_count = pow(2, (crr_entry_count))-1
+                avg_entry_price := (temp_prev_count * avg_entry_price + (pow(2, crr_entry_count)*close)) / (pow(2, (crr_entry_count+1)) - 1)
+                crr_entry_count := crr_entry_count + 1
+                crr_tp := avg_entry_price * (1-tp/100)
+                last_short_entry_time := timenow
+                alert(message_entry_short, freq=alert.freq_all)
+else
+    if (barstate.isconfirmed or not only_on_bar_close)
+        // checking for short entry
+        if (short_condition_open and timenow > last_short_entry_time + 1000*alert_secs)
+            last_entry_price := close
+            avg_entry_price := close
+            crr_entry_count := 1
+            crr_tp := close * (1-tp/100)
+            last_short_entry_time := timenow
+            initial_entry_price:=close
+            alert(message_entry_short, freq=alert.freq_all)

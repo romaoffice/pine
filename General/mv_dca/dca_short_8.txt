@@ -1,0 +1,311 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Fresh_P
+
+//@version=4
+study("DCA Short", overlay=true, max_lines_count  = 150)
+
+//===================== moving average =======================
+//inputs
+src = close
+useCurrentRes = input(true, title="Use Current Chart Resolution?", group="MA")
+resCustom = input(title="Use Different Timeframe? Uncheck Box Above", type=input.resolution, defval="D", group="MA")
+len = input(20, title="Moving Average Length - LookBack Period", group="MA")
+//periodT3 = input(defval=7, title="Tilson T3 Period", minval=1) 
+factorT3 = input(defval=7, title="Tilson T3 Factor - *.10 - so 7 = .7 etc.", minval=0, group="MA") 
+atype = input(1,minval=1,maxval=8,title="1=SMA, 2=EMA, 3=WMA, 4=HullMA, 5=VWMA, 6=RMA, 7=TEMA, 8=Tilson T3", group="MA")
+spc=input(false, title="Show Price Crossing 1st Mov Avg - Highlight Bar?", group="MA")
+cc = input(true,title="Change Color Based On Direction?", group="MA")
+smoothe = input(2, minval=1, maxval=10, title="Color Smoothing - Setting 1 = No Smoothing", group="MA")
+doma2 = input(false, title="Optional 2nd Moving Average", group="MA")
+spc2=input(false, title="Show Price Crossing 2nd Mov Avg?", group="MA")
+len2 = input(50, title="Moving Average Length - Optional 2nd MA", group="MA")
+sfactorT3 = input(defval=7, title="Tilson T3 Factor - *.10 - so 7 = .7 etc.", minval=0, group="MA")
+atype2 = input(1,minval=1,maxval=8,title="1=SMA, 2=EMA, 3=WMA, 4=HullMA, 5=VWMA, 6=RMA, 7=TEMA, 8=Tilson T3", group="MA")
+cc2 = input(true,title="Change Color Based On Direction 2nd MA?", group="MA")
+warn = input(false, title="***You Can Turn On The Show Dots Parameter Below Without Plotting 2nd MA to See Crosses***", group="MA")
+warn2 = input(false, title="***If Using Cross Feature W/O Plotting 2ndMA - Make Sure 2ndMA Parameters are Set Correctly***", group="MA")
+sd = input(false, title="Show Dots on Cross of Both MA's", group="MA")
+
+res = useCurrentRes ? timeframe.period : resCustom
+//hull ma definition
+hullma = wma(2*wma(src, len/2)-wma(src, len), round(sqrt(len)))
+//TEMA definition
+ema1 = ema(src, len)
+ema2 = ema(ema1, len)
+ema3 = ema(ema2, len)
+tema = 3 * (ema1 - ema2) + ema3
+
+//Tilson T3
+factor = factorT3 *.10
+gd(src, len, factor) => ema(src, len) * (1 + factor) - ema(ema(src, len), len) * factor 
+t3(src, len, factor) => gd(gd(gd(src, len, factor), len, factor), len, factor) 
+tilT3 = t3(src, len, factor) 
+ 
+
+avg = atype == 1 ? sma(src,len) : atype == 2 ? ema(src,len) : atype == 3 ? wma(src,len) : atype == 4 ? hullma : atype == 5 ? vwma(src, len) : atype == 6 ? rma(src,len) : atype == 7 ? 3 * (ema1 - ema2) + ema3 : tilT3
+//2nd Ma - hull ma definition
+hullma2 = wma(2*wma(src, len2/2)-wma(src, len2), round(sqrt(len2)))
+//2nd MA TEMA definition
+sema1 = ema(src, len2)
+sema2 = ema(sema1, len2)
+sema3 = ema(sema2, len2)
+stema = 3 * (sema1 - sema2) + sema3
+
+//2nd MA Tilson T3
+sfactor = sfactorT3 *.10
+sgd(src, len2, sfactor) => ema(src, len2) * (1 + sfactor) - ema(ema(src, len2), len2) * sfactor 
+st3(src, len2, sfactor) => sgd(sgd(gd(src, len2, sfactor), len2, sfactor), len2, sfactor) 
+stilT3 = st3(src, len2, sfactor) 
+
+avg2 = atype2 == 1 ? sma(src,len2) : atype2 == 2 ? ema(src,len2) : atype2 == 3 ? wma(src,len2) : atype2 == 4 ? hullma2 : atype2 == 5 ? vwma(src, len2) : atype2 == 6 ? rma(src,len2) : atype2 == 7 ? 3 * (ema1 - ema2) + ema3 : stilT3
+
+out = avg 
+out_two = avg2
+
+out1 = security(syminfo.tickerid, res, out)
+out2 = security(syminfo.tickerid, res, out_two)
+
+//Formula for Price Crossing Moving Average #1
+cr_up = open < out1 and close > out1
+cr_Down = open > out1 and close < out1
+//Formula for Price Crossing Moving Average #2
+cr_up2 = open < out2 and close > out2
+cr_Down2 = open > out2 and close < out2
+//barcolor Criteria for Price Crossing Moving Average #1
+iscrossUp() => cr_up
+iscrossDown() => cr_Down
+//barcolor Criteria for Price Crossing Moving Average #2
+iscrossUp2() => cr_up2
+iscrossDown2() => cr_Down2
+
+ma_up = out1 >= out1[smoothe]
+ma_down = out1 < out1[smoothe]
+
+col = cc ? ma_up ? color.lime : ma_down ? color.red : color.aqua : color.aqua
+col2 = cc2 ? ma_up ? color.lime : ma_down ? color.red : color.aqua : color.white
+
+circleYPosition = out2
+
+plot(out1, title="Multi-Timeframe Moving Avg", style=plot.style_line, linewidth=4, color = col)
+plot(doma2 and out2 ? out2 : na, title="2nd Multi-TimeFrame Moving Average", style=plot.style_circles, linewidth=4, color=col2)
+plot(sd and cross(out1, out2) ? circleYPosition : na,style=plot.style_cross, linewidth=15, color=color.aqua)
+//barcolor Plot for Price Crossing Moving Average #1
+barcolor(spc and iscrossUp() ? (iscrossUp() ? color.yellow : na) : na)
+barcolor(spc and iscrossDown() ? (iscrossDown() ? color.yellow : na) : na)
+//barcolor Plot for Price Crossing Moving Average #2
+barcolor(spc2 and iscrossUp2() ? (iscrossUp2() ? color.yellow : na) : na)
+barcolor(spc2 and iscrossDown2() ? (iscrossDown2() ? color.yellow : na) : na)
+
+//======================= minimum take profit ===========
+minimum_tp = input(0.2, "Minimum Take Profit(%)", type=input.float,group='Trade')
+
+
+//======================= dca ===========================
+
+alert_secs = input(30, "Alert timeout in seconds", type=input.integer,group='DCA')
+thld = input(3, "Position threshold in percent", type=input.float,group='DCA')
+tp = input(2, "Take profit in percent", type=input.float,group='DCA')
+only_on_bar_close = input(false, "Only send alerts on candle close", type=input.bool,group='DCA')
+
+prd = input(defval = 10, title="Period", minval = 5, maxval = 30,group='DCA') // period: if there possible profit higher than user-defined minimum profit in that period, it checks 2 to X bars
+minchange = input(defval = 2.0, title = "Min Profit", minval = 0.1, step = 0.1,group='DCA') / 100  // exptected minimum profit
+simrate = input(defval = 80., title = "Similarity Rate", minval = 20., maxval = 99.,group='DCA') // minimum similarity, 80 or higher number would be better 
+maxarraysize = input(defval = 5000, title = "Max Memory Size", minval = 100, maxval = 10000,group='DCA') // how many images it will keep
+changebarcol = input(defval = true, title = "Change Bar Color?",group='DCA')
+
+// defining some variables to keep track of positions
+varip int last_short_entry_time = 0
+varip int crr_entry_count = 0
+varip float crr_tp = 0
+varip float last_entry_price = 0
+varip float avg_entry_price = 0
+varip float initial_entry_price = 0
+varip bool   mustenter = false
+
+// mamory to keep images
+var shorts = array.new_string(0)
+
+// define dymamic image size
+h_ = highest(8)
+l_ = lowest(8)
+cw = (h_ - l_) / 8
+
+// is in channel
+included(t1, t2, t3, t4)=> (t3 >= t1 and t3 <= t2) or 
+                           (t4 >= t1 and t4 <= t2) or 
+                           (t3 <= t1 and t4 >= t2)
+
+// get part of the image, in this fuction we create filter for the square. 
+// normally we should use 4x4 or similar filters but the problem is we have a lot of different images. so we try to make it simplier
+// Each square gets the value:
+// 0: nothing in it
+// 1: only wick in it
+// 2: only red body in it
+// 3. only green body in it
+// 4: red body and wick in it
+// 5: green body and wick in it 
+get_filter(t1, t2, j)=>
+    btop = max(close[j], open[j])
+    bbot = min(close[j], open[j])
+    wick_included = included(t1, t2, btop, high[j]) or included(t1, t2, low[j], bbot)
+    body_included = included(t1, t2, bbot, btop)
+    col = close[j] >= open[j] ? 1 : 0
+    chr = wick_included and body_included ? 4 + col : wick_included ? 1 : body_included ? 2 + col : 0
+    tostring(chr)
+    
+// calculate the image, in this function we create filter for the image
+create_filter()=>
+    string img = ""
+    b = l_
+    t = l_ + cw
+    for i = 0 to 7  // 8 * 8 matrix, we may get better results with more squares such 20x20 especially for the images in that we have long candles, but it's hard to get result in expected time
+        for j = 0 to 7
+            img := img + get_filter(b, t, j)
+        b := b + cw
+        t := t + cw
+             
+    img
+
+// draw the image
+draw_image(image, base)=>
+    var imglinearray = array.new_line(64)
+    for x = 0 to 63
+        line.delete(array.get(imglinearray, x))
+        
+    img = str.split(image, "")
+    ind = 0
+    for y = 0 to 7
+        for x = 0 to 7 
+            i = array.get(img, ind)
+            array.set(imglinearray, ind, 
+                      line.new(x1 = bar_index - x * 3 , 
+                               y1 = y + base, 
+                               x2 = bar_index - x * 3 - 2, 
+                               y2 = y + base, 
+                               color = i == "2" ? color.red : i == "4" ? color.olive : i == "3" ? color.lime : i == "5" ? color.green : i == "1" ? color.gray : color.black, width = 25)) 
+            ind := ind + 1
+
+// get current image and draw it, here actually we create filter according to squares of the image
+image = create_filter()
+draw_image(image, 0)
+
+// search the image in memory, in this function the filter created for current image is searhed in filters the momory
+// the main issue is that we have a lot of images in the memory, but not a few images (like, a car image or apple image). 
+// so we created filter for all of them and we need to search all of them
+search_image(image)=>
+    img_array = str.split(image, "")
+    sim = 0.
+    fimg = ""
+    for i = 0 to array.size(shorts) - 1
+        limg_array = str.split(array.get(shorts, i), "")
+        sim := 100.
+        for j = 0 to 63
+            // actually we need to use -1.5625 if the filter is not macthes, but the main issue we have a lot of images/filters in the memory. not only a few images
+            sim := sim - (array.get(img_array, j) != array.get(limg_array, j) ? 1.5625 : 0) 
+            if sim < simrate
+                break
+        if sim >= simrate
+            fimg := array.get(shorts, i)
+            break
+    [sim, fimg]
+    
+// check if price incresed higher than user-defined profit in user-defined period
+// if yes then this is a new image that we need to save, so we add this filter to the memory
+var minprofit = 100.
+var maxprofit = 0.
+if maxarraysize > array.size(shorts)
+    for x = 2 to prd // there must be a candle for entry, so started from 2
+        profit = -(close - close[x]) / close[x]
+        if profit >= minchange
+            // we check if the price went above the highest level of the image
+            not_sl = true
+            for y = 0 to x - 1
+                if high[y] > h_
+                    not_sl := false        
+            if not_sl and array.size(str.split(image, "")) == 64  and not array.includes(shorts, image[x]) 
+                minprofit := min(minprofit, profit)
+                maxprofit := max(maxprofit, profit)
+                array.unshift(shorts, image[x])
+                break
+
+// search for current image/filter in the database if it matches
+simm = 0.
+fm = ""
+if barstate.islast and array.size(shorts)> 0
+    [sim, fimg] = search_image(image)
+    simm := sim
+    fm := fimg
+
+var label flabel = na
+var label currentimagelab = label.new(bar_index - 30, 3, text = "Current Image", style = label.style_label_right, color = color.lime, textcolor = color.black)
+label.set_x(currentimagelab, bar_index - 30)
+
+// found an image with enough profit
+if fm != ""
+    label.delete(flabel)
+    flabel := label.new(bar_index - 30, 18, text = "Matched " + tostring(simm, '#.##') + " %", style = label.style_label_right, color = color.purple)
+    draw_image(fm, 15)
+
+var label infolab = label.new(bar_index - 75, 0, text = "", color = color.lime, textcolor = color.black, textalign = text.align_left, size = size.large)
+label.set_text(infolab, "Learned : " + tostring(array.size(shorts)) + 
+                       "\nMemory Full : " + tostring(100 * array.size(shorts)/maxarraysize, '#.##') + 
+                       " %\nMin Profit Found : " + tostring(minprofit*100, '#.#') + 
+                       " %\nMax Profit Found : " + tostring(maxprofit*100, '#.#') + "%")
+                       
+label.set_x(infolab, bar_index - 75)
+
+barcolor(color = changebarcol and fm != "" ? color.purple : na)
+
+// alert messages
+message_entry_short = '{"name": "DCA-Short","secret": "3w0462dsqt9obmm20d","side": "sell","symbol": "'+tostring(syminfo.ticker)+'","open": {"price": "'+tostring(close)+'","priceOfs": "0.10"},"positionSide": "short"}'
+
+message_exit_short = '{"name": "DCA-Short","secret": "3w0462dsqt9obmm20d","side": "buy","symbol": "'+tostring(syminfo.ticker)+'","close": {"enabled": true,"price":"'+tostring(close)+'"},"positionSide": "short"}'
+
+
+long_entry_condition = nz(ma_up[1]) ==false and ma_up
+short_entry_condition = nz(ma_down[1]) ==false and ma_down
+short_entry_condition_dca = fm != ""
+
+// position is open
+if crr_entry_count > 0
+    // checking TP
+    if (close<avg_entry_price*(1-minimum_tp/100) and crr_entry_count==1 and long_entry_condition) or (close < crr_tp and crr_entry_count>1)
+        crr_entry_count := 0
+        //must generate signal ma_up, init entry>close
+        if(initial_entry_price<close)
+            mustenter:=true
+        alert(message_exit_short, freq=alert.freq_all)
+        mustenter
+    else 
+        if (barstate.isconfirmed or not only_on_bar_close)
+            // checking for repeated short entry after threshold
+            if short_entry_condition_dca and close > last_entry_price * (1+thld/100) and timenow > last_short_entry_time + 1000*alert_secs
+                last_entry_price := close
+                temp_prev_count = pow(2, (crr_entry_count))-1
+                avg_entry_price := (temp_prev_count * avg_entry_price + (pow(2, crr_entry_count)*close)) / (pow(2, (crr_entry_count+1)) - 1)
+                crr_entry_count := crr_entry_count + 1
+                crr_tp := avg_entry_price * (1-tp/100)
+                last_short_entry_time := timenow
+                alert(message_entry_short, freq=alert.freq_all)
+                mustenter
+else
+    if (barstate.isconfirmed or not only_on_bar_close)
+        // checking for short entry
+        if ((mustenter and ma_down) or (short_entry_condition and timenow > last_short_entry_time + 1000*alert_secs))
+            last_entry_price := close
+            avg_entry_price := close
+            crr_entry_count := 1
+            crr_tp := close * (1-tp/100)
+            last_short_entry_time := timenow
+            initial_entry_price:=close
+            alert(message_entry_short, freq=alert.freq_all)
+            mustenter:=false
+        else
+            mustenter:=false
+
+
+//plot(avg_entry_price,title='avg_entry_price')
+//plot(crr_entry_count, color=color.purple,title='crr_entry_count')
+//plot(last_entry_price, color=color.yellow,title='last_entry_price')
+//plot(crr_tp, color=color.green,title='crr_tp')
+//plotshape(crr_entry_count > 0 ? close < last_entry_price * (1-thld/100) : false)

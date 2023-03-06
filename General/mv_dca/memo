@@ -1,0 +1,68 @@
+Contract Action Taken By Saeid K.
+We need to combine two indicators and create alerts.
+
+The first indicator is Moving Average, which does not require any changes. We use it to enter long or short positions. 
+
+1- The rules for entry are simple: when the line turns green, we send a long entry alert, and when the line turns red, we need a short alert.
+
+2- Important rules apply to close alerts. 
+	For the close long position alert
+		- the line needs to turn red
+		- the position needs to be in the green by a minimum percentage. 
+			We need the option to adjust this percentage. 
+	For the close short position alert
+		- the line needs to turn green
+		- position needs to be in the green by a minimum percentage. 
+			We must have the option to adjust this percentage as well.
+
+3- The second indicator is DCA and does not need any changes. We use it to DCA in case the price goes against our entry. Using this indicator can help us close the deal in the green and exit the position. However, in normal situations, all entry alerts are triggered by the Moving Average indicator (first indicator).
+
+example: Suppose the price goes against our entry, 
+	- then the Moving Average indicator will be turned off temporarily, 
+	- the DCA indicator starts to check for possible entries based on the rules already built into the indicator (threshold in percent and minimum profit, etc.) to average down the entry (by one DCA or more based on the rules already built into the indicator) and close in green.
+
+4- Note that DCA close alerts (for long entries) DCA indicator have an option called "take profit in percent" that triggers a close alert after using DCA.
+
+We use this alert only for DCA and to close the deal in green.
+
+If the condition for this percentage take profit, which is built into the DCA indicator after DCA entry, is met, and the line is still RED, and the price is less than the initial entry, an alert for the close deal must trigger immediately.
+
+- However, if the condition is met, and the line is GREEN, and the price is less than the initial entry, the alert for the close deal must also trigger immediately.
+BUT in this case by candle close, if the line is still green, the first indicator must send a new entry.
+
+For DCA Short entry, similar rules apply but are opposite.
+For the DCA indicator, I have separate scripts for long and short. 
+So, you can combine the first indicator for each one separately. 
+
+This way, we can have a script for long entry and another script for short entry, which I believe would simplify your work as well.
+please let me know if any questions
+Offer details
+
+
+
+but sometimes I see some alerts that are not supposed to trigger. 
+To find the issues and solutions, I have written the rules again in simple terms. 
+Please read them again and double-check to make sure everything is correct. 
+
+Meanwhile, I will continue testing during the day and get back to you. 
+If necessary, I can record a video or we can have a short Zoom meeting. Also.
+I will try to prepare the details for the next task.
+
+Moving Average indicator
+1- when the line turns green, we send a long entry alert,
+2- For the close long alert, the line needs to turn red, and the position needs to be in the green by a certain percentage.
+3- and when the line turns red, we need a short alert.
+4- For the close short alert, the line needs to turn green, and the position needs to be in the green by a certain percentage.
+
+The DCA indicator;
+5- if the price goes against our entry, then the Moving Average indicator will be turned off temporarily, and the DCA indicator starts to check for possible entries based on the rules already built into the indicator (threshold in percent and minimum profit, etc.) to average down the entry (by one DCA or more based on the rules already built into the indicator) and close in green.
+
+6- for the close of the deal after using the DCA alert, the indicator has an option called "take profit in percent" after DCA this condition must be met so the deal must be in green, for triggers a close alert. but if the alert for DCA didn't trigger and the price recover above the initial entry then the Moving Average close alert condition applies.
+
+7- But If the condition for this percentage takes profit, which is built into the DCA indicator after DCA entry, is met, and the line is still RED, and the price is less than the initial entry, an alert for the close deal must trigger immediately.
+
+\- However, if the condition is met, and the line is GREEN, and the price is less than the initial entry, the alert for the close deal must also trigger immediately.
+BUT in this case by candle close, if the line is still green, the first indicator must send a new entry.
+For DCA Short entry, similar rules apply but are opposite.
+
+

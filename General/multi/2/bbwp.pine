@@ -1,0 +1,120 @@
+//
+// @version=5
+//
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// @author  = The_Caretaker
+// © The_Caretaker
+//
+// Much respect to John A Bollinger the creator of Bollinger Bands® and Bollinger Band Width indicators.
+// 
+// Feel free to reuse or develop this script further, please drop me a note below if you find it useful.
+//
+
+indicator ( 'Bollinger Band Width Percentile', 'BBWP', overlay = false, format = format.percent, precision = 2, max_bars_back = 1000 )
+
+///////////////////////////////////////////////////////////////////////////////
+// Variable declarations
+
+var string s_HMMML = 'High - Mid Hi - Mid - Mid Low - Low'
+var string s_HML   = 'High - Mid - Low'
+var string s_HL    = 'High - Low'
+
+///////////////////////////////////////////////////////////////////////////////
+// inputs
+
+i_priceSrc      = input.source  ( close,        'Price Source',                                                                                               group = 'BBWP Properties')
+i_basisType     = input.string  ( 'SMA',        'Basis Type',                       options=[ 'SMA', 'EMA', 'WMA', 'RMA', 'HMA', 'VWMA' ],                    group = 'BBWP Properties')
+i_bbwpLen       = input.int     ( 13,           'Length',                           minval=1,                                                                 group = 'BBWP Properties')
+i_bbwpLkbk      = input.int     ( 252,          'Lookback',                         minval=1,                                                                 group = 'BBWP Properties')
+
+i_c_typ_line    = input.string  ( 'Spectrum',   'Color Type',                       options=[ 'Spectrum', 'Solid' ],                          inline = '1',   group = 'Line Plot Settings')
+i_c_so_line     = input.color   ( #FFFF00,    'Solid Color',                                                                                inline = '1',   group = 'Line Plot Settings')
+i_c_typ_sp_line = input.string  ( s_HMMML,      'Spectrum',                         options=[ s_HL, s_HML, s_HMMML ],                         inline = '2',   group = 'Line Plot Settings')
+i_c_sp_hi_line  = input.color   ( #FF0000,    'High',                                                                                       inline = '3',   group = 'Line Plot Settings')
+i_c_sp_mhi_line = input.color   ( #ffff00,    'Mid Hi',                                                                                     inline = '3',   group = 'Line Plot Settings')
+i_c_sp_mid_line = input.color   ( #00FF00,    'Mid',                                                                                        inline = '3',   group = 'Line Plot Settings')
+i_c_sp_mlo_line = input.color   ( #00ffff,    'Mid Lo',                                                                                     inline = '3',   group = 'Line Plot Settings')
+i_c_sp_lo_line  = input.color   ( #0000FF,    'Low',                                                                                        inline = '3',   group = 'Line Plot Settings')
+i_p_width_line  = input.int     ( 2,            'Line Width',                       minval=1, maxval=4,                                       inline = '4',   group = 'Line Plot Settings')
+
+i_ma1On         = input.bool    ( true,         '',                                                                                           inline = '1',   group = 'Moving Average Settings')
+i_ma1Type       = input.string  ( 'SMA',        'MA 1 Type',                        options=[ 'SMA', 'EMA', 'WMA', 'RMA', 'HMA' ],            inline = '1',   group = 'Moving Average Settings')
+i_c_ma1         = input.color   ( #FFFFFF,    '',                                                                                           inline = '1',   group = 'Moving Average Settings')
+i_ma1Len        = input.int     ( 5,            'Length',                           minval=1,                                                 inline = '1',   group = 'Moving Average Settings')
+i_ma2On         = input.bool    ( false,        '',                                                                                           inline = '2',   group = 'Moving Average Settings')
+i_ma2Type       = input.string  ( 'SMA',        'MA 2 Type',                        options=[ 'SMA', 'EMA', 'WMA', 'RMA', 'HMA' ],            inline = '2',   group = 'Moving Average Settings')
+i_c_ma2         = input.color   ( #00FFFF,    '',                                                                                           inline = '2',   group = 'Moving Average Settings')
+i_ma2Len        = input.int     ( 8,            'Length',                           minval=1,                                                 inline = '2',   group = 'Moving Average Settings')
+
+i_alrtsOn       = input.bool    ( true,         'Alerts On',                                                                                                  group = 'Visual Alerts')
+i_upperLevel    = input.int     ( 98,           'Extreme High',                     minval=1, inline='1',                                                     group = 'Visual Alerts')
+i_lowerLevel    = input.int     ( 2,            'Extreme Low',                      minval=1, inline='1',                                                     group = 'Visual Alerts')
+
+///////////////////////////////////////////////////////////////////////////////
+// function declarations
+
+f_maType ( _price, _len, _type ) =>
+    switch _type
+        "SMA" => ta.sma ( _price, _len )
+        "EMA" => ta.ema ( _price, _len )
+        "WMA" => ta.wma ( _price, _len )
+        "RMA" => ta.rma ( _price, _len )
+        "HMA" => ta.hma ( _price, _len )
+        => ta.vwma ( _price, _len )
+
+     // Returns moving average determined by _type       
+
+f_bbwp ( _price, _bbwLen, _bbwpLen, _type ) =>
+    float _basis = f_maType ( _price, _bbwLen, _type )
+    float _dev = ta.stdev ( _price, _bbwLen )
+    _bbw = ( _basis + _dev - ( _basis - _dev )) / _basis
+    _bbwSum = 0.0
+    _len = bar_index < _bbwpLen ? bar_index : _bbwpLen
+    for _i = 1 to _len by 1
+        _bbwSum += ( _bbw[_i] > _bbw ? 0 : 1 )
+        _bbwSum
+    _return = bar_index >= _bbwLen ? ( _bbwSum / _len) * 100 : na
+    _return
+
+     // Returns Bollinger Band Width Percentile
+
+f_5Col ( _val, _lowV, _lmV, _midV, _hmV, _hiV, _lowC, _lmC, _midC, _mhC, _hiC ) =>
+    _val <= _lmV ? color.from_gradient ( _val, _lowV, _lmV, _lowC, _lmC ) : _val <= _midV ? color.from_gradient ( _val, _lmV, _midV, _lmC, _midC ) : _val <= _hmV ? color.from_gradient ( _val, _midV, _hmV, _midC, _mhC ) : color.from_gradient ( _val, _hmV, _hiV, _mhC, _hiC )
+
+     // Returns a quatruple spectrum color determined by _val from high to mid high to mid to mid low to low
+
+f_3Col ( _val, _lowV, _midV, _hiV, _lowC, _midC, _hiC ) =>
+    _val <= _midV ? color.from_gradient ( _val, _lowV, _midV, _lowC, _midC) : color.from_gradient ( _val, _midV, _hiV, _midC, _hiC)
+
+     // Returns a double spectrum color determined by _val from high to mid to low
+
+f_clrSlct ( _val, _type, _solid, _grad, _lowV, _lmV, _midV, _hmV, _hiV, _lowC, _lmC, _midC, _mhC, _hiC ) => 
+    _type == 'Solid' ? _solid : _grad == s_HL ? color.from_gradient ( _val, _lowV, _hiV, _lowC, _hiC) : _grad == s_HML ? f_3Col ( _val, _lowV, _midV, _hiV, _lowC, _midC, _hiC ) : f_5Col ( _val, _lowV, _lmV, _midV, _hmV, _hiV, _lowC, _lmC, _midC, _mhC, _hiC )
+
+     // Returns a color determined by _val from user settings of solid, or spectrum from high to low, or double spectrum from high to mid to low, or quatruple spectrum from high to mid high to mid to mid low to low
+
+/////////////////////////////////////////////////////////////////////////////// 
+// calculations
+
+bbwp        = f_bbwp ( i_priceSrc, i_bbwpLen, i_bbwpLkbk, i_basisType )
+c_bbwp      = f_clrSlct ( bbwp, i_c_typ_line, i_c_so_line, i_c_typ_sp_line, 0, 25, 50, 75, 100, i_c_sp_lo_line, i_c_sp_mlo_line, i_c_sp_mid_line, i_c_sp_mhi_line, i_c_sp_hi_line )
+bbwpMA1     = i_ma1On ? f_maType ( bbwp, i_ma1Len, i_ma1Type ) : na
+bbwpMA2     = i_ma2On ? f_maType ( bbwp, i_ma2Len, i_ma2Type ) : na
+hiAlrtBar   = i_alrtsOn and bbwp >= i_upperLevel ? bbwp : na
+loAlrtBar   = i_alrtsOn and bbwp <= i_lowerLevel ? bbwp : na
+
+/////////////////////////////////////////////////////////////////////////////// 
+// plots
+
+p_scaleHi   = hline ( 100,  'Scale High',#ff0000, hline.style_solid )
+p_midLine   = hline ( 50,   'Mid-Line',  #a6a6a6, hline.style_dashed )
+p_scaleLo   = hline ( 0,    'Scale Low', #0000ff, hline.style_solid )
+
+p_bbwp      = plot ( bbwp,      'BBWP',         c_bbwp, i_p_width_line, plot.style_line, editable=false )
+p_hiAlrt    = plot ( hiAlrtBar, 'Extreme Hi',   c_bbwp, 1, plot.style_columns, histbase=0, editable=false )
+p_loAlrt    = plot ( loAlrtBar, 'Extreme Lo',   c_bbwp, 1, plot.style_columns, histbase=100, editable=false )
+p_ma1       = plot ( bbwpMA1,   'MA 1',         i_c_ma1, 1, plot.style_line, 0 )
+p_ma2       = plot ( bbwpMA2,   'MA 2',         i_c_ma2, 1, plot.style_line, 0 )
+
+/////////////////////////////
+// end
