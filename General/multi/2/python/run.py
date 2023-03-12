@@ -3,55 +3,100 @@ from datetime import datetime,timedelta
 import backtrader as bt
 import backtrader.indicators as btind
 from ccxtbt import CCXTFeed
-from Strategies.Strategy_2 import Strategy_2
+from Strategies.Strategy_2 import Strategy_2,variation_list_Strategy_2
+from Strategies.Strategy_3 import Strategy_3,variation_list_Strategy_3
+from Strategies.Strategy_4 import Strategy_4,variation_list_Strategy_4
+from Strategies.Strategy_5 import Strategy_5,variation_list_Strategy_5
+from Strategies.Strategy_8 import Strategy_8,variation_list_Strategy_8
+from Strategies.Strategy_9 import Strategy_9,variation_list_Strategy_9
+from Strategies.Strategy_10 import Strategy_10,variation_list_Strategy_10
+from Strategies.Strategy_11 import Strategy_11,variation_list_Strategy_11
+from Strategies.Strategy_13 import Strategy_13,variation_list_Strategy_13
+from Strategies.Strategy_14 import Strategy_14,variation_list_Strategy_14
+
+from Strategies.Strategy_100 import Strategy_100,variation_list_Strategy_100
+
 import backtrader.analyzers as btanalyzers
 import pandas as pd
 
-def main():
+def main(strategyNumber,debug):
 
-
-   strategyNumber = 2
    startbalance = 100000.0
-   maxbars = 15000
-   percents_equity = 10
+   commission = 0.0003
+   maxbars = 5000 if debug else 50000
+   percents_equity = 1
 
    totals = 0
-   variation_list=[
-      {'use_daily_filter':False,'pamrp_entry_bellow':True,'pamrp_entry_level':15,'pmarp_exit_level':75},
-      {'use_daily_filter':True,'pamrp_entry_bellow':True,'pamrp_entry_level':15,'pmarp_exit_level':75},
-      {'use_daily_filter':False,'pamrp_entry_bellow':False,'pamrp_entry_level':70,'bbwp_entry_level':40,'pmarp_exit_level':85},
-      {'use_daily_filter':True,'pamrp_entry_bellow':False,'pamrp_entry_level':70,'bbwp_entry_level':40,'pmarp_exit_level':85},
-      {'use_daily_filter':False,'pamrp_entry_bellow':True,'pamrp_entry_level':15,'bbwp_entry_level':40,'pmarp_exit_level':85},
-      {'use_daily_filter':True,'pamrp_entry_bellow':True,'pamrp_entry_level':15,'bbwp_entry_level':40,'pmarp_exit_level':85}
-   ]
 
+   variation_list=None
+   Strategy = None
+
+   if(strategyNumber==2):
+      variation_list=variation_list_Strategy_2
+      Strategy = Strategy_2
+   if(strategyNumber==3):
+      variation_list=variation_list_Strategy_3
+      Strategy = Strategy_3
+   if(strategyNumber==4):
+      variation_list=variation_list_Strategy_4
+      Strategy = Strategy_4
+   if(strategyNumber==5):
+      variation_list=variation_list_Strategy_5
+      Strategy = Strategy_5
+   if(strategyNumber==8):
+      variation_list=variation_list_Strategy_8
+      Strategy = Strategy_8
+   if(strategyNumber==9):
+      variation_list=variation_list_Strategy_9
+      Strategy = Strategy_9
+   if(strategyNumber==10):
+      variation_list=variation_list_Strategy_10
+      Strategy = Strategy_10
+   if(strategyNumber==11):
+      variation_list=variation_list_Strategy_11
+      Strategy = Strategy_11
+   if(strategyNumber==12):
+      variation_list=variation_list_Strategy_12
+      Strategy = Strategy_12
+   if(strategyNumber==13):
+      variation_list=variation_list_Strategy_13
+      Strategy = Strategy_13
+   if(strategyNumber==14):
+      variation_list=variation_list_Strategy_14
+      Strategy = Strategy_14
+   if(strategyNumber==100):
+      variation_list=variation_list_Strategy_100
+      Strategy = Strategy_100
    for symbol in ["BTC","ETH","BNB","ADA","XRP","LDO","SOL","MATIC","DOGE","SAND"]:
       for currentTF in [5,15,30,60,120,240,360]:
          variation_index = 0
          for params in variation_list:
             variation_index = variation_index + 1
-            print('-----',symbol,currentTF,params)
+            print('--strategyNumber %s symbol %s currentTF %s variation_index %s---'  %( strategyNumber,symbol,currentTF,variation_index))
             params["percents_equity"] = percents_equity
-            cerebro = bt.Cerebro()
-            cerebro.addstrategy(Strategy_2,params)
+            params["debug"] = debug
+            cerebro = bt.Cerebro(cheat_on_open=True)
+            cerebro.broker.setcommission(commtype=bt.CommInfoBase.COMM_PERC,commission=commission)
+            cerebro.addstrategy(Strategy,params)
+
             cerebro.addanalyzer(btanalyzers.DrawDown, _name='drawdown')
             cerebro.addanalyzer(btanalyzers.TradeAnalyzer, _name='trade')
 
             #prepare feed
             fromdate = datetime.now()-timedelta(minutes=currentTF*maxbars)
             todate = datetime.now()
-            fromdate_daily = datetime.now()-timedelta(days=100)-timedelta(minutes=currentTF*maxbars)
-            # Add the feed
+            
             data1 = CCXTFeed(exchange='binance',
                                    dataname=symbol+'BUSD',
                                    timeframe=bt.TimeFrame.Minutes,
                                    fromdate=fromdate,
                                    todate=todate,
                                    compression=currentTF,
-                                   ohlcv_limit=500,
+                                   ohlcv_limit=5000,
                                    currency=symbol,
                                    retries=5,
                                    historical=True,
+                                   drop_newest=True,
                                    config={
                                       'enableRateLimit': True,
                                       'options': {'defaultType': 'future'}})
@@ -60,7 +105,7 @@ def main():
             data2 = CCXTFeed(exchange='binance',
                                    dataname=symbol+'BUSD',
                                    timeframe=bt.TimeFrame.Days,
-                                   fromdate=fromdate_daily,
+                                   fromdate=fromdate-timedelta(days=200),
                                    todate=todate,
                                    compression=1,
                                    ohlcv_limit=500,
@@ -72,15 +117,14 @@ def main():
                                       'options': {'defaultType': 'future'}})
             cerebro.adddata(data2)
             cerebro.broker.setcash(startbalance)
-            thestrats = cerebro.run()
+            thestrats = cerebro.run(runonce=False)
             thestrat = thestrats[0]
             dd = thestrat.analyzers.drawdown.get_analysis()
             trade = thestrat.analyzers.trade.get_analysis()
-
             mdd = round(dd.max.drawdown,2)
-            netprofit = round(trade.pnl.net.total,2)
-            profit_percent= round(trade.pnl.net.total/startbalance*100,2)
-            if(trade.streak):
+            if(trade.total.total>0):
+               netprofit = round(trade.pnl.net.total,2)
+               profit_percent= round(trade.pnl.net.total/startbalance*100,2)
                win_trades = trade.won.total
                loss_trades = trade.lost.total
                winrate = 0 if (win_trades+loss_trades==0) else round(win_trades/(win_trades+loss_trades)*100,2)
@@ -111,13 +155,25 @@ def main():
                  "GrossLoss": [gross_loss],
                  "ProfitFactor": [profit_factor]
                }
-            newdf = pd.DataFrame(p_matrix)
-            if(totals==0):
-               df = newdf
-            else:
-               df=pd.concat([df,newdf])
-
+               newdf = pd.DataFrame(p_matrix)
+               if(totals==0):
+                  df = newdf
+               else:
+                  df=pd.concat([df,newdf])
+               print('profit %s---'  %( netprofit))
             totals = totals +1
+            if(debug):
+               break
+         if(debug):
+            break
+      if(debug):
+         break
    df.to_csv('./result/out'+str(strategyNumber)+'.csv')
    print("Completed")
-main()
+
+debug=False
+
+for strategyNumber in [4,5,8,9,10,11,13]:#[2,3,4,5,8,9,10,11,13,14]:
+   main(strategyNumber,debug)
+
+

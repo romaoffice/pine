@@ -3,32 +3,21 @@ import backtrader.indicators as btind
 from Strategies.Indicators.Bbwp import BBWPInd
 from Strategies.Indicators.Pmarp import PMARPInd
 
-variation_list_Strategy_3=[
-  {'use_daily_filter':False,'bbwp_entry_level':35,'pmarp_exit_level':15},
-  {'use_daily_filter':False,'bbwp_entry_level':35,'pmarp_exit_level':20},
-  {'use_daily_filter':False,'bbwp_entry_level':35,'pmarp_exit_level':25},
-  {'use_daily_filter':False,'bbwp_entry_level':40,'pmarp_exit_level':15},
-  {'use_daily_filter':False,'bbwp_entry_level':40,'pmarp_exit_level':20},
-  {'use_daily_filter':False,'bbwp_entry_level':40,'pmarp_exit_level':25},
-  {'use_daily_filter':False,'bbwp_entry_level':50,'pmarp_exit_level':15},
-  {'use_daily_filter':False,'bbwp_entry_level':50,'pmarp_exit_level':20},
-  {'use_daily_filter':False,'bbwp_entry_level':50,'pmarp_exit_level':25},
-  {'use_daily_filter':True,'bbwp_entry_level':35,'pmarp_exit_level':15},
-  {'use_daily_filter':True,'bbwp_entry_level':35,'pmarp_exit_level':20},
-  {'use_daily_filter':True,'bbwp_entry_level':35,'pmarp_exit_level':25},
-  {'use_daily_filter':True,'bbwp_entry_level':40,'pmarp_exit_level':15},
-  {'use_daily_filter':True,'bbwp_entry_level':40,'pmarp_exit_level':20},
-  {'use_daily_filter':True,'bbwp_entry_level':40,'pmarp_exit_level':25},
-  {'use_daily_filter':True,'bbwp_entry_level':50,'pmarp_exit_level':15},
-  {'use_daily_filter':True,'bbwp_entry_level':50,'pmarp_exit_level':20},
-  {'use_daily_filter':True,'bbwp_entry_level':50,'pmarp_exit_level':25}
+variation_list_Strategy_4=[
+  {'use_daily_filter':False,'pmarp_entry_level':85,'pmarp_exit_level':15},
+  {'use_daily_filter':False,'pmarp_entry_level':85,'pmarp_exit_level':20},
+  {'use_daily_filter':False,'pmarp_entry_level':85,'pmarp_exit_level':25},
+  {'use_daily_filter':True,'pmarp_entry_level':85,'pmarp_exit_level':15},
+  {'use_daily_filter':True,'pmarp_entry_level':85,'pmarp_exit_level':20},
+  {'use_daily_filter':True,'pmarp_entry_level':85,'pmarp_exit_level':25}
 ]
 
 
-class Strategy_3(bt.Strategy):
+class Strategy_4(bt.Strategy):
     params = (
         ('percents_equity',1),
         ('bbwp_entry_level',35),
+        ('pmarp_entry_level',85),
         ('pmarp_exit_level',15),
         ('use_daily_filter',False),
         ('fast_ema_period', 21),
@@ -49,10 +38,12 @@ class Strategy_3(bt.Strategy):
         self.next_runs = 0
         self.slow_ema = btind.EMA(period=self.p.slow_ema_period)
         self.fast_ema = btind.EMA(period=self.p.fast_ema_period)
+        self.slow_ema_daily = btind.EMA(self.data1,period=self.p.slow_ema_period)
+        self.fast_ema_daily = btind.EMA(self.data1,period=self.p.fast_ema_period)
         self.bbwp = BBWPInd(i_bbwpLen=self.p.i_bbwpLen,i_bbwpLkbk=self.p.i_bbwpLkbk,i_basisType=self.p.i_basisType)
         self.pmarp = PMARPInd(i_ma_len=self.p.i_ma_len,i_ma_type=self.p.i_ma_type,i_pmarp_lookback=self.p.i_pmarp_lookback)
         self.bbwp_daily = BBWPInd(self.data1,i_bbwpLen=self.p.i_bbwpLen,i_bbwpLkbk=self.p.i_bbwpLkbk,i_basisType=self.p.i_basisType)
-        
+
         self.SL1 = None
         self.SL2 = None
         self.limitorder = None
@@ -60,7 +51,6 @@ class Strategy_3(bt.Strategy):
         self.size=0
         self.lastchecktime = None
         self.barsAfterEnter = 0
-
     def log(self, txt, dt=None):
         if(self.p.debug):
             ''' Logging function fot this strategy'''
@@ -89,19 +79,23 @@ class Strategy_3(bt.Strategy):
 
         # Write down: no pending order
         self.order = None
-    
-    def next(self, dt=None):
 
+    def next(self, dt=None):
+        
+        #realtime
         isBarclose = True
         dt = dt or self.datas[0].datetime.datetime(0)
         if(self.lastchecktime==self.datas[0].datetime.datetime(-1)):
             isBarclose = False
         self.lastchecktime = self.datas[0].datetime.datetime(-1)
-
         #condition
         short_entry_condition = self.fast_ema[0]<self.slow_ema[0] and \
-            self.bbwp[0]<self.p.bbwp_entry_level and \
-            (self.p.use_daily_filter==False or self.bbwp_daily.bbwp[0]<self.bbwp_daily.bbwpma[0]) 
+            self.pmarp.pmarpma[0]>self.p.pmarp_entry_level and \
+            self.pmarp.pmarp[0]<self.pmarp.pmarpma[0] and \
+            self.pmarp.pmarp[-1]>=self.pmarp.pmarpma[-1] and \
+            self.bbwp.bbwpma[0]<self.bbwp.bbwpma[-1] and \
+            (self.p.use_daily_filter==False or self.fast_ema_daily[0]<self.slow_ema_daily[0])
+
         short_exit_condition = self.pmarp.pmarp[0]<self.p.pmarp_exit_level
 
         if(isBarclose and (not self.position or self.position.size<0)):
@@ -114,11 +108,12 @@ class Strategy_3(bt.Strategy):
                     self.limitorder.created.price = self.slow_ema[0]
                 else:
                     self.size = self.broker.get_cash()*self.p.percents_equity/100/self.datas[0].close[0]
-                    self.limitorder=self.sell(size=self.size,price =self.slow_ema[-1],exectype=bt.Order.Limit)
+                    self.limitorder=self.sell(size=self.size,price =self.slow_ema[0],exectype=bt.Order.Limit)
                     self.SL1=None
                     self.SL2=None
                     self.log('initiated limit order at %s stoploss %s' % (self.datas[0].close[0],self.datas[0].high[0]))
         else:
+
             if(self.limitorder is not None and isBarclose):
                 if(short_exit_condition):
                     self.log('Cancel limit order')

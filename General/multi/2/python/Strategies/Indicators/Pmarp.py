@@ -2,11 +2,12 @@ import backtrader as bt
 import backtrader.indicators as btind
 
 class PMARPInd(bt.Indicator):
-    lines = ('pmarp',)
+    lines = ('pmarp','pmarpma')
 
     params = (('i_ma_len', 20),
               ('i_ma_type', 'VWMA'),
-              ('i_pmarp_lookback',350)
+              ('i_pmarp_lookback',350),
+              ('i_ma1Len',5)
               )
 
     def __init__(self):
@@ -33,3 +34,13 @@ class PMARPInd(bt.Indicator):
             _pmarpSum += ( 0 if self.pmar[-_i]>self.pmar[0] else 1 )
         
         self.lines.pmarp[0] = ( _pmarpSum / _len)*100 if (len(self) >= self.p.i_ma_len) else None
+
+        _pmarpmaSum = 0.0
+        if len(self.lines.pmarp)<self.p.i_ma1Len+1:
+            _lenma = len(self.self.lines.pmarp)-1
+        else:
+            _lenma = self.p.i_ma1Len
+        for _i in range(0,_lenma):
+            _pmarpmaSum += self.lines.pmarp[-_i]
+
+        self.lines.pmarpma[0] = ( _pmarpmaSum / _lenma)        
